@@ -30,7 +30,7 @@ runs:
         echo "SKIP_DOCKER=true" >> $GITHUB_ENV
       fi
       if [[ -z "${{ inputs.API_VERSION }}" ]]; then
-        echo "CONFORMANCE_VERSION=$(cat go.mod | grep gateway-api | cut -d" " -f2 | sed 's/^v0\.\([[:digit:]]\{1,\}\)\.[[:digit:]]\{1,\}$$/1.\1.x/')" >> $GITHUB_ENV
+        echo "CONFORMANCE_VERSION=$(cat go.mod | grep -m1 gateway-api | cut -d" " -f2 | sed 's/^v0\.\([[:digit:]]\{1,\}\)\.[[:digit:]]\{1,\}$$/1.\1.x/')" >> $GITHUB_ENV
       else
         echo "CONFORMANCE_VERSION=${{ inputs.API_VERSION }}" >> $GITHUB_ENV
       fi
