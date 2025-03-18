@@ -1,15 +1,23 @@
 package endpointpicker
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"time"
 
+	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	"github.com/solo-io/go-utils/contextutils"
+	"go.uber.org/zap"
+	"google.golang.org/protobuf/types/known/structpb"
 	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	infextv1a2 "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/ir"
+	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/krtcollections"
+	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/utils/krtutil"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
 )
 
@@ -68,6 +76,13 @@ func (ir *inferencePool) CreationTime() time.Time {
 }
 
 func (ir *inferencePool) Selector() map[string]string {
+	if ir.objMeta.Labels == nil {
+		return nil
+	}
+	return ir.objMeta.Labels
+}
+
+func (ir *inferencePool) PodSelector() map[string]string {
 	if ir.podSelector == nil {
 		return nil
 	}
@@ -149,4 +164,113 @@ func versionEquals(a, b metav1.Object) bool {
 		versionEquals = a.GetResourceVersion() == b.GetResourceVersion()
 	}
 	return versionEquals && a.GetUID() == b.GetUID()
+}
+
+type infPoolEndpointsInputs struct {
+	backendObjectIRs krt.Collection[ir.BackendObjectIR]
+	pods             krt.Collection[krtcollections.LocalityPod]
+	krtOpts          krtutil.KrtOptions
+}
+
+
+func newInfPoolEndpointsInputs(
+	krtOpts krtutil.KrtOptions,
+	backendObjectIRs krt.Collection[ir.BackendObjectIR],
+	podCol krt.Collection[krtcollections.LocalityPod],
+) *infPoolEndpointsInputs {
+	return &infPoolEndpointsInputs{
+		backendObjectIRs: backendObjectIRs,
+		pods:             podCol,
+		krtOpts:          krtOpts,
+	}
+}
+
+func (i *infPoolEndpointsInputs) newInfPoolEndpoints(ctx context.Context) krt.Collection[ir.EndpointsForBackend] {
+	return krt.NewCollection(i.backendObjectIRs, i.transformInfPoolEndpoints(ctx), i.krtOpts.ToOptions("InferencePoolEndpoints")...)
+}
+
+func (i *infPoolEndpointsInputs) transformInfPoolEndpoints(ctx context.Context) func(kctx krt.HandlerContext, be ir.BackendObjectIR) *ir.EndpointsForBackend {
+	logger := contextutils.LoggerFrom(ctx).Desugar()
+
+	return func(kctx krt.HandlerContext, be ir.BackendObjectIR) *ir.EndpointsForBackend {
+		irPool, ok := be.ObjIr.(*inferencePool)
+		if !ok || irPool == nil {
+			logger.Debug("not an InferencePool object")
+			return nil
+		}
+
+		logger.Debug("building endpoints for InferencePool", zap.String("pool", irPool.objMeta.Name))
+
+		// Create a LocalityPod collection based on matching AugmentedLabels and Namespace.
+		matches := krt.Fetch(kctx, i.pods, krt.FilterGeneric(func(obj any) bool {
+			pod, ok := obj.(krtcollections.LocalityPod)
+			if !ok {
+				logger.Debug("not a LocalityPod object")
+				return false
+			}
+			// Ensure the Pod is in the same namespace as the InferencePool IR.
+			if pod.Namespace != irPool.objMeta.Namespace {
+				return false
+			}
+			// Ensure the pod labels match the InferencePool selector
+			return labelsMatch(irPool.PodSelector(), pod.AugmentedLabels)
+		}))
+
+		// Always return a valid EndpointsForBackendObjectIR instance, even if no matching pods
+		ret := ir.NewEndpointsForBackend(be)
+
+		if len(matches) == 0 {
+			logger.Debug("no matching pods found for InferencePool",
+			zap.String("pool", irPool.objMeta.Name),
+			zap.String("namespace", irPool.objMeta.Namespace))
+			return ret // Return an empty but valid EndpointsForBackendObjectIR
+		}
+
+		// Process matching Pods
+		for _, pod := range matches {
+			// Create Envoy LB Endpoint
+			ep := krtcollections.CreateLBEndpoint(pod.IP(), uint32(irPool.targetPort), pod.AugmentedLabels, false)
+			if ep.Metadata == nil {
+				ep.Metadata = &corev3.Metadata{}
+			}
+			if ep.Metadata.FilterMetadata == nil {
+				ep.Metadata.FilterMetadata = map[string]*structpb.Struct{}
+			}
+			logger.Debug("adding filter metadata for endpoint picker extension")
+			ep.Metadata.FilterMetadata[envoySubsetNamespace] = &structpb.Struct{
+				Fields: map[string]*structpb.Value{
+					endpointHintKey: {Kind: &structpb.Value_StringValue{StringValue: fmt.Sprintf("%s:%d", pod.IP(), irPool.targetPort)}},
+				},
+			}
+
+			// Add endpoint
+			ret.Add(pod.Locality, ir.EndpointWithMd{
+				LbEndpoint: ep,
+				EndpointMd: ir.EndpointMetadata{
+					Labels: pod.AugmentedLabels,
+				},
+			})
+		}
+
+		logger.Debug("created endpoints", zap.Int("numAddresses", len(ret.LbEps)))
+		return ret
+	}
+}
+
+func (i *infPoolEndpointsInputs) ResourceName() string {
+	return "inference-pool-inputs"
+}
+
+// in case multiple policies attached to the same resource, we sort by policy creation time.
+func (i *infPoolEndpointsInputs) CreationTime() time.Time {
+	// settings always created at the same time
+	return time.Time{}
+}
+
+func (i *infPoolEndpointsInputs) Equals(in any) bool {
+	inputs, ok := in.(*infPoolEndpointsInputs)
+	if !ok {
+		return false
+	}
+	return i == inputs
 }

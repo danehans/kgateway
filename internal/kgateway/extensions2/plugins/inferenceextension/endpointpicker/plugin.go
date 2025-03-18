@@ -25,14 +25,23 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/extensions2/common"
 	extplug "github.com/kgateway-dev/kgateway/v2/internal/kgateway/extensions2/plugin"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/ir"
+	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/krtcollections"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/plugins"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/utils/krtutil"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
 )
 
-// Derived from upstream Gateway API Inference Extension defaults (testdata/envoy.yaml).
-const DefaultExtProcMaxRequests = 40000
+const (
+	// Derived from upstream Gateway API Inference Extension defaults (testdata/envoy.yaml).
+	defaultExtProcMaxRequests = 40000
+	// Host metadata for subset load balancing is placed under this key. This key is set by the
+	// InferencePool EPP (Endpoint Picker).
+	envoySubsetNamespace = "envoy.lb"
+	// endpointHintKey is the metadata key used for endpoint selection. This key is set by the
+	// InferencePool EPP (Endpoint Picker).
+	endpointHintKey = "x-gateway-destination-endpoint"
+)
 
 func NewPlugin(ctx context.Context, commonCol *common.CommonCollections) extplug.Plugin {
 	poolGVR := schema.GroupVersionResource{
@@ -48,13 +57,14 @@ func NewPlugin(ctx context.Context, commonCol *common.CommonCollections) extplug
 		commonCol.KrtOpts.ToOptions("InferencePools")...,
 	)
 
-	return NewPluginFromCollections(ctx, commonCol, poolCol)
+	return NewPluginFromCollections(ctx, commonCol, poolCol, commonCol.Pods)
 }
 
 func NewPluginFromCollections(
 	ctx context.Context,
 	commonCol *common.CommonCollections,
 	poolCol krt.Collection[*infextv1a2.InferencePool],
+	podCol krt.Collection[krtcollections.LocalityPod],
 ) extplug.Plugin {
 	// The InferencePool group kind used by the BackendObjectIR and the ContributesBackendObjectIRs plugin.
 	gk := schema.GroupKind{
@@ -79,6 +89,9 @@ func NewPluginFromCollections(
 		}
 	}, commonCol.KrtOpts.ToOptions("InferencePoolIR")...)
 
+	// Create an endpoints krt collection from the BackendObjectIR.
+	inputs := newInfPoolEndpointsInputs(commonCol.KrtOpts, backendCol, podCol)
+
 	policyCol := krt.NewCollection(poolCol, func(krtctx krt.HandlerContext, pool *infextv1a2.InferencePool) *ir.PolicyWrapper {
 		// Create a PolicyWrapper IR representation from the given InferencePool.
 		return &ir.PolicyWrapper{
@@ -97,7 +110,8 @@ func NewPluginFromCollections(
 	return extplug.Plugin{
 		ContributesBackends: map[schema.GroupKind]extplug.BackendPlugin{
 			gk: {
-				Backends: backendCol,
+				Backends:  backendCol,
+				Endpoints: inputs.newInfPoolEndpoints(ctx),
 				BackendInit: ir.BackendInit{
 					InitBackend: processBackendObjectIR,
 				},
@@ -202,7 +216,7 @@ func (p *endpointPickerPass) ApplyForBackend(
 
 	// Point the route to the ORIGINAL_DST cluster for this pool.
 	out.GetRoute().ClusterSpecifier = &routev3.RouteAction_Cluster{
-		Cluster: clusterNameOriginalDst(irPool.objMeta.GetName(), irPool.objMeta.GetNamespace()),
+		Cluster: backendClusterName(irPool.objMeta.GetName(), irPool.objMeta.GetNamespace()),
 	}
 
 	// Build the route-level ext_proc override that points to this pool's ext_proc cluster.
@@ -248,13 +262,6 @@ func (p *endpointPickerPass) HttpFilters(ctx context.Context, fc ir.FilterChainC
 			continue
 		}
 
-		clusterName := clusterNameExtProc(pool.objMeta.GetName(), pool.objMeta.GetNamespace())
-		authority := fmt.Sprintf("%s.%s:%d",
-			pool.configRef.Name,
-			pool.objMeta.GetNamespace(),
-			pool.configRef.ports[0].portNum,
-		)
-
 		// Use a unique filter name per pool to avoid collisions.
 		filterName := fmt.Sprintf("%s_%s_%s",
 			wellknown.InfPoolTransformationFilterName,
@@ -266,20 +273,24 @@ func (p *endpointPickerPass) HttpFilters(ctx context.Context, fc ir.FilterChainC
 			GrpcService: &corev3.GrpcService{
 				TargetSpecifier: &corev3.GrpcService_EnvoyGrpc_{
 					EnvoyGrpc: &corev3.GrpcService_EnvoyGrpc{
-						ClusterName: clusterName,
-						Authority:   authority,
+						ClusterName: "dummy",
 					},
 				},
+				Timeout: &durationpb.Duration{Seconds: 10},
 			},
+			FailureModeAllow: true,
 			ProcessingMode: &extprocv3.ProcessingMode{
-				RequestHeaderMode:   extprocv3.ProcessingMode_SEND,
-				RequestBodyMode:     extprocv3.ProcessingMode_BUFFERED,
-				ResponseHeaderMode:  extprocv3.ProcessingMode_SKIP,
-				RequestTrailerMode:  extprocv3.ProcessingMode_SKIP,
-				ResponseTrailerMode: extprocv3.ProcessingMode_SKIP,
+				RequestHeaderMode:  extprocv3.ProcessingMode_SKIP,
+				ResponseHeaderMode: extprocv3.ProcessingMode_SKIP,
 			},
-			MessageTimeout:   durationpb.New(5 * time.Second),
-			FailureModeAllow: false,
+			MetadataOptions: &extprocv3.MetadataOptions{
+				ReceivingNamespaces: &extprocv3.MetadataOptions_MetadataNamespaces{
+					Untyped: []string{envoySubsetNamespace},
+				},
+				ForwardingNamespaces: &extprocv3.MetadataOptions_MetadataNamespaces{
+					Untyped: []string{envoySubsetNamespace},
+				},
+			},
 		}
 
 		stagedFilter, err := plugins.NewStagedFilter(
@@ -313,35 +324,6 @@ func (p *endpointPickerPass) ResourcesToAdd(ctx context.Context) ir.Resources {
 	return ir.Resources{Clusters: clusters}
 }
 
-// processBackendObjectIR builds the ORIGINAL_DST cluster for each InferencePool.
-func processBackendObjectIR(ctx context.Context, in ir.BackendObjectIR, out *clusterv3.Cluster) {
-	out.ConnectTimeout = durationpb.New(1000 * time.Second)
-
-	out.ClusterDiscoveryType = &clusterv3.Cluster_Type{
-		Type: clusterv3.Cluster_ORIGINAL_DST,
-	}
-
-	out.LbPolicy = clusterv3.Cluster_CLUSTER_PROVIDED
-	out.LbConfig = &clusterv3.Cluster_OriginalDstLbConfig_{
-		OriginalDstLbConfig: &clusterv3.Cluster_OriginalDstLbConfig{
-			UseHttpHeader:  true,
-			HttpHeaderName: "x-gateway-destination-endpoint",
-		},
-	}
-
-	out.CircuitBreakers = &clusterv3.CircuitBreakers{
-		Thresholds: []*clusterv3.CircuitBreakers_Thresholds{
-			{
-				MaxConnections:     wrapperspb.UInt32(DefaultExtProcMaxRequests),
-				MaxPendingRequests: wrapperspb.UInt32(DefaultExtProcMaxRequests),
-				MaxRequests:        wrapperspb.UInt32(DefaultExtProcMaxRequests),
-			},
-		},
-	}
-
-	out.Name = clusterNameOriginalDst(in.Name, in.Namespace)
-}
-
 // buildExtProcCluster builds and returns a “STRICT_DNS” cluster from the given pool.
 func buildExtProcCluster(pool *inferencePool) *clusterv3.Cluster {
 	if pool == nil || pool.configRef == nil || len(pool.configRef.ports) != 1 {
@@ -360,6 +342,7 @@ func buildExtProcCluster(pool *inferencePool) *clusterv3.Cluster {
 			ClusterName: name,
 			Endpoints: []*endpointv3.LocalityLbEndpoints{{
 				LbEndpoints: []*endpointv3.LbEndpoint{{
+					// TODO [danehans]: Should the InferencePool IR carry status of the configRef extension deployment?
 					HealthStatus: corev3.HealthStatus_HEALTHY,
 					HostIdentifier: &endpointv3.LbEndpoint_Endpoint{
 						Endpoint: &endpointv3.Endpoint{
@@ -414,10 +397,87 @@ func buildExtProcCluster(pool *inferencePool) *clusterv3.Cluster {
 	return c
 }
 
+// processBackendObjectIR builds the ORIGINAL_DST cluster for each InferencePool.
+/*func processBackendObjectIR(ctx context.Context, in ir.BackendObjectIR, out *clusterv3.Cluster) {
+	out.ConnectTimeout = durationpb.New(1000 * time.Second)
+
+	out.ClusterDiscoveryType = &clusterv3.Cluster_Type{
+		Type: clusterv3.Cluster_ORIGINAL_DST,
+	}
+
+	out.LbPolicy = clusterv3.Cluster_CLUSTER_PROVIDED
+	out.LbConfig = &clusterv3.Cluster_OriginalDstLbConfig_{
+		OriginalDstLbConfig: &clusterv3.Cluster_OriginalDstLbConfig{
+			UseHttpHeader:  true,
+			HttpHeaderName: "x-gateway-destination-endpoint",
+		},
+	}
+
+	out.CircuitBreakers = &clusterv3.CircuitBreakers{
+		Thresholds: []*clusterv3.CircuitBreakers_Thresholds{
+			{
+				MaxConnections:     wrapperspb.UInt32(DefaultExtProcMaxRequests),
+				MaxPendingRequests: wrapperspb.UInt32(DefaultExtProcMaxRequests),
+				MaxRequests:        wrapperspb.UInt32(DefaultExtProcMaxRequests),
+			},
+		},
+	}
+
+	out.Name = clusterNameOriginalDst(in.Name, in.Namespace)
+}*/
+
+func processBackendObjectIR(ctx context.Context, in ir.BackendObjectIR, out *clusterv3.Cluster) {
+	// Use an EDS-backed cluster for the InferencePool (dynamic endpoints provided via IR)
+	out.ClusterDiscoveryType = &clusterv3.Cluster_Type{Type: clusterv3.Cluster_EDS}
+
+	// Optionally, specify the EDS service name if needed (not required if endpoints are attached via IR):
+	//out.EdsClusterConfig = &clusterv3.Cluster_EdsClusterConfig{ServiceName: in.Name /* or a computed name */}
+
+	// Set a generous timeout for long-running LLM requests (aligning with ext_proc cluster settings)
+	out.ConnectTimeout = durationpb.New(24 * time.Hour) // 24h, to avoid premature timeout on long inference
+
+	// Use a standard load balancing policy. LEAST_REQUEST helps distribute load across available pods.
+	out.LbPolicy = clusterv3.Cluster_LEAST_REQUEST
+
+	// Enable subset load balancing by a unique endpoint ID, so ext_proc can hint a specific pod.
+	// Each endpoint should carry metadata (e.g. {"endpointId": "<podUID>"}). Envoy will pick the subset if a route provides a matching metadata.
+	out.LbSubsetConfig = &clusterv3.Cluster_LbSubsetConfig{
+		FallbackPolicy: clusterv3.Cluster_LbSubsetConfig_ANY_ENDPOINT, // if no subset match, use any endpoint
+		DefaultSubset:  nil,
+		SubsetSelectors: []*clusterv3.Cluster_LbSubsetConfig_LbSubsetSelector{
+			{
+				SingleHostPerSubset: true,
+				// TODO [danehans]: Make the key is configurable.
+				Keys: []string{endpointHintKey},
+			},
+		},
+	}
+
+	// Configure high limits for circuit breakers (to accommodate bursts and many parallel streams)
+	out.CircuitBreakers = &clusterv3.CircuitBreakers{
+		Thresholds: []*clusterv3.CircuitBreakers_Thresholds{{
+			MaxConnections:     wrapperspb.UInt32(defaultExtProcMaxRequests),
+			MaxPendingRequests: wrapperspb.UInt32(defaultExtProcMaxRequests),
+			MaxRequests:        wrapperspb.UInt32(defaultExtProcMaxRequests),
+		}},
+	}
+
+	out.Name = backendClusterName(in.Name, in.Namespace)
+}
+
 func clusterNameExtProc(name, ns string) string {
 	return fmt.Sprintf("endpointpicker_%s_%s_ext_proc", name, ns)
 }
 
-func clusterNameOriginalDst(name, ns string) string {
-	return fmt.Sprintf("endpointpicker_%s_%s_original_dst", name, ns)
+func backendClusterName(name, ns string) string {
+	return fmt.Sprintf("endpointpicker_%s_%s_backend", name, ns)
+}
+
+func labelsMatch(selector map[string]string, podLabels map[string]string) bool {
+	for k, v := range selector {
+		if podLabels[k] != v {
+			return false
+		}
+	}
+	return true
 }
