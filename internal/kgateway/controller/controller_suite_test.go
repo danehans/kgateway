@@ -134,9 +134,8 @@ var _ = BeforeSuite(func() {
 
 	// Start the inference pool controller.
 	poolCfg := &controller.InferencePoolConfig{
-		Mgr:            mgr,
-		ControllerName: gatewayControllerName,
-		InferenceExt:   new(deployer.InferenceExtInfo),
+		Mgr:          mgr,
+		InferenceExt: new(deployer.InferenceExtInfo),
 	}
 	err = controller.NewBaseInferencePoolController(ctx, poolCfg, &gwCfg)
 	Expect(err).ToNot(HaveOccurred())
@@ -274,7 +273,7 @@ var _ = Describe("InferencePool controller", func() {
 								BackendRef: apiv1.BackendRef{
 									BackendObjectReference: apiv1.BackendObjectReference{
 										Group: ptr.To(apiv1.Group(infextv1a2.GroupVersion.Group)),
-										Kind:  ptr.To(apiv1.Kind("InferencePool")),
+										Kind:  ptr.To(apiv1.Kind(wellknown.InferencePoolKind)),
 										Name:  "pool1",
 									},
 								},
@@ -293,8 +292,8 @@ var _ = Describe("InferencePool controller", func() {
 				Parents: []apiv1.RouteParentStatus{
 					{
 						ParentRef: apiv1.ParentReference{
-							Group:     ptr.To(apiv1.Group("gateway.networking.k8s.io")),
-							Kind:      ptr.To(apiv1.Kind("Gateway")),
+							Group:     ptr.To(apiv1.Group(apiv1.GroupVersion.Group)),
+							Kind:      ptr.To(apiv1.Kind(wellknown.GatewayKind)),
 							Name:      apiv1.ObjectName(testGw.Name),
 							Namespace: ptr.To(apiv1.Namespace(defaultNamespace)),
 						},
@@ -309,7 +308,7 @@ var _ = Describe("InferencePool controller", func() {
 		// Create an InferencePool resource that is referenced by the HTTPRoute.
 		pool := &infextv1a2.InferencePool{
 			TypeMeta: metav1.TypeMeta{
-				Kind:       "InferencePool",
+				Kind:       wellknown.InferencePoolKind,
 				APIVersion: infextv1a2.GroupVersion.String(),
 			},
 			ObjectMeta: metav1.ObjectMeta{
@@ -335,9 +334,47 @@ var _ = Describe("InferencePool controller", func() {
 		// The secondary watch on HTTPRoute should now trigger reconciliation of pool "pool1".
 		// We expect the deployer to render and deploy an endpoint picker Deployment with name "pool1-endpoint-picker".
 		expectedName := fmt.Sprintf("%s-endpoint-picker", pool.Name)
-		var deploy appsv1.Deployment
 		Eventually(func() error {
-			return k8sClient.Get(ctx, client.ObjectKey{Namespace: defaultNamespace, Name: expectedName}, &deploy)
+			var deploy appsv1.Deployment
+			err := k8sClient.Get(ctx, client.ObjectKey{
+				Namespace: defaultNamespace,
+				Name:      expectedName,
+			}, &deploy)
+			if err != nil {
+				return err
+			}
+
+			// Check the InferencePool status is updated with a single parent referencing "test-gateway".
+			var updatedPool infextv1a2.InferencePool
+			if err := k8sClient.Get(ctx, client.ObjectKey{
+				Namespace: defaultNamespace,
+				Name:      pool.Name,
+			}, &updatedPool); err != nil {
+				return err
+			}
+
+			if len(updatedPool.Status.Parents) == 0 {
+				return fmt.Errorf("no status parents found for InferencePool %s", pool.Name)
+			}
+
+			parent := updatedPool.Status.Parents[0]
+			if parent.GatewayRef.Name != testGw.Name {
+				return fmt.Errorf("expected GatewayRef.Name=%q, got %q",
+					testGw.Name, parent.GatewayRef.Name)
+			}
+			if parent.GatewayRef.Kind != "Gateway" {
+				return fmt.Errorf("expected GatewayRef.Kind=Gateway, got %q", parent.GatewayRef.Kind)
+			}
+			// Optionally check Condition Type/Reason ignoring LastTransitionTime.
+			if len(parent.Conditions) == 0 {
+				return fmt.Errorf("expected at least one condition in PoolStatus, got 0")
+			}
+			cond := parent.Conditions[0]
+			if cond.Type != "Accepted" || cond.Status != metav1.ConditionTrue {
+				return fmt.Errorf("expected condition type=Accepted/status=True, got type=%q/status=%q",
+					cond.Type, cond.Status)
+			}
+			return nil
 		}, "10s", "1s").Should(Succeed())
 	})
 
@@ -345,7 +382,7 @@ var _ = Describe("InferencePool controller", func() {
 		// Create an InferencePool that is not referenced by any HTTPRoute.
 		pool := &infextv1a2.InferencePool{
 			TypeMeta: metav1.TypeMeta{
-				Kind:       "InferencePool",
+				Kind:       wellknown.InferencePoolKind,
 				APIVersion: infextv1a2.GroupVersion.String(),
 			},
 			ObjectMeta: metav1.ObjectMeta{

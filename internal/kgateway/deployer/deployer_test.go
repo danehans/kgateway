@@ -1445,13 +1445,6 @@ var _ = Describe("Deployer", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			// Simulate reconciliation so that the pool gets its finalizer added.
-			err = d.EnsureFinalizer(context.Background(), pool)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Check that the pool itself has the finalizer set.
-			Expect(pool.GetFinalizers()).To(ContainElement(wellknown.InferencePoolFinalizer))
-
 			// Get the endpoint picker objects for the InferencePool.
 			objs, err := d.GetEndpointPickerObjs(pool)
 			Expect(err).NotTo(HaveOccurred())
