@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -257,19 +258,24 @@ func (c *controllerBuilder) addHTTPRouteIndexes(ctx context.Context) error {
 func httpRouteInferencePoolIndex(obj client.Object) []string {
 	route, ok := obj.(*apiv1.HTTPRoute)
 	if !ok {
-		// Should never happen, but return empty slice in case of unexpected type.
 		return nil
 	}
 
-	var poolNames []string
+	// Build a ns/name list of pool references for the HTTPRoute.
+	var poolRefs []string
 	for _, rule := range route.Spec.Rules {
 		for _, ref := range rule.BackendRefs {
 			if ref.Kind != nil && *ref.Kind == wellknown.InferencePoolKind {
-				poolNames = append(poolNames, string(ref.Name))
+				ns := route.GetNamespace()
+				if ref.Namespace != nil {
+					ns = string(*ref.Namespace)
+				}
+				poolRefs = append(poolRefs, ns+"/"+string(ref.Name))
 			}
 		}
 	}
-	return poolNames
+
+	return poolRefs
 }
 
 // watchInferencePool adds a watch on InferencePool and HTTPRoute objects (that reference an InferencePool)
@@ -307,8 +313,8 @@ func (c *controllerBuilder) watchInferencePool(ctx context.Context) error {
 			}
 
 			// Use the index function to get the inference pool names.
-			poolNames := httpRouteInferencePoolIndex(route)
-			if len(poolNames) == 0 {
+			poolNsNames := httpRouteInferencePoolIndex(route)
+			if len(poolNsNames) == 0 {
 				return nil
 			}
 
@@ -327,11 +333,12 @@ func (c *controllerBuilder) watchInferencePool(ctx context.Context) error {
 			// The HTTPRoute references an InferencePool and one of our Gateways.
 			// Enqueue each referenced InferencePool for reconciliation.
 			var reqs []reconcile.Request
-			for _, poolName := range poolNames {
+			for _, poolName := range poolNsNames {
+				nsName := strings.Split(poolName, "/")
 				reqs = append(reqs, reconcile.Request{
 					NamespacedName: client.ObjectKey{
-						Namespace: route.Namespace,
-						Name:      poolName,
+						Namespace: nsName[0],
+						Name:      nsName[1],
 					},
 				})
 			}
