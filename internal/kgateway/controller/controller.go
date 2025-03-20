@@ -3,12 +3,14 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -65,19 +67,20 @@ func NewBaseGatewayController(ctx context.Context, cfg GatewayConfig) error {
 }
 
 type InferencePoolConfig struct {
-	Mgr            manager.Manager
-	ControllerName string
-	InferenceExt   *deployer.InferenceExtInfo
+	Mgr          manager.Manager
+	InferenceExt *deployer.InferenceExtInfo
 }
 
 func NewBaseInferencePoolController(ctx context.Context, poolCfg *InferencePoolConfig, gwCfg *GatewayConfig) error {
 	log := log.FromContext(ctx)
-	log.V(5).Info("starting inferencepool controller", "controllerName", poolCfg.ControllerName)
+	log.V(5).Info("starting inferencepool controller", "controllerName", gwCfg.ControllerName)
 
 	// TODO [danehans]: Make GatewayConfig optional since Gateway and InferencePool are independent controllers.
 	controllerBuilder := &controllerBuilder{
-		cfg:     *gwCfg,
-		poolCfg: poolCfg,
+		cfg:            *gwCfg,
+		poolCfg:        poolCfg,
+		managedPools:   make(map[types.NamespacedName]struct{}),
+		parentGateways: make(map[types.NamespacedName]struct{}),
 		reconciler: &controllerReconciler{
 			cli:    poolCfg.Mgr.GetClient(),
 			scheme: poolCfg.Mgr.GetScheme(),
@@ -100,6 +103,10 @@ type controllerBuilder struct {
 	cfg        GatewayConfig
 	poolCfg    *InferencePoolConfig
 	reconciler *controllerReconciler
+	// managedPools defines a cache of managed InferencePools.
+	managedPools map[types.NamespacedName]struct{}
+	// parentGateways defines a cache of Gateways that parent a managed InferencePool.
+	parentGateways map[types.NamespacedName]struct{}
 }
 
 func (c *controllerBuilder) addIndexes(ctx context.Context) error {
@@ -257,33 +264,40 @@ func (c *controllerBuilder) addHTTPRouteIndexes(ctx context.Context) error {
 func httpRouteInferencePoolIndex(obj client.Object) []string {
 	route, ok := obj.(*apiv1.HTTPRoute)
 	if !ok {
-		// Should never happen, but return empty slice in case of unexpected type.
 		return nil
 	}
 
-	var poolNames []string
+	// Build a ns/name list of pool references.
+	var poolRefs []string
 	for _, rule := range route.Spec.Rules {
 		for _, ref := range rule.BackendRefs {
 			if ref.Kind != nil && *ref.Kind == wellknown.InferencePoolKind {
-				poolNames = append(poolNames, string(ref.Name))
+				ns := route.GetNamespace()
+				if ref.Namespace != nil {
+					ns = string(*ref.Namespace)
+				}
+				poolRef := types.NamespacedName{
+					Namespace: ns,
+					Name:      string(ref.Name),
+				}
+				poolRefs = append(poolRefs, poolRef.String())
 			}
 		}
 	}
-	return poolNames
+
+	return poolRefs
 }
 
-// watchInferencePool adds a watch on InferencePool and HTTPRoute objects (that reference an InferencePool)
+// watchInferencePool adds a watch on InferencePool and HTTPRoute objects
 // to trigger reconciliation.
 func (c *controllerBuilder) watchInferencePool(ctx context.Context) error {
 	log := log.FromContext(ctx)
 	log.Info("creating inference extension deployer", "controller", c.cfg.ControllerName)
 
-	// Register the HTTPRoute index.
 	if err := c.addHTTPRouteIndexes(ctx); err != nil {
 		return fmt.Errorf("failed to register HTTPRoute index: %w", err)
 	}
 
-	// Create a deployer using the controllerBuilder as inputs.
 	d, err := deployer.NewDeployer(c.cfg.Mgr.GetClient(), &deployer.Inputs{
 		ControllerName:     c.cfg.ControllerName,
 		InferenceExtension: c.poolCfg.InferenceExt,
@@ -299,46 +313,66 @@ func (c *controllerBuilder) watchInferencePool(ctx context.Context) error {
 				predicate.GenerationChangedPredicate{},
 			),
 		)).
-		// Watch HTTPRoute objects so that changes there trigger a reconcile for referenced InferencePools.
 		Watches(&apiv1.HTTPRoute{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 			route, ok := obj.(*apiv1.HTTPRoute)
 			if !ok {
 				return nil
 			}
 
-			// Use the index function to get the inference pool names.
-			poolNames := httpRouteInferencePoolIndex(route)
-			if len(poolNames) == 0 {
-				return nil
+			// Use the index function to get currently referenced pools by ns/name.
+			poolNsNames := make(map[types.NamespacedName]struct{})
+			names := httpRouteInferencePoolIndex(route)
+			for _, name := range names {
+				if nn, err := parseNamespacedName(name); err != nil {
+					log.Error(err, "failed to parse namespaced name")
+					continue
+				} else {
+					poolNsNames[nn] = struct{}{}
+				}
 			}
 
+			// Initialize the returned list of matching InferencePools.
+			var requests []reconcile.Request
+
+			// Always reconcile previously known InferencePools from the managedPools map.
+			// This ensures reconciliation occurs when pools are no longer referenced to update status.
+			for poolKey := range c.managedPools {
+				if _, exists := poolNsNames[poolKey]; !exists {
+					// The InferencePool was previously referenced but no longer is; reconcile it.
+					requests = append(requests, reconcile.Request{
+						NamespacedName: poolKey,
+					})
+				}
+			}
+
+			// Enqueue newly referenced InferencePools.
 			hasOurGateway := false
 			for _, pStatus := range route.Status.Parents {
 				if pStatus.ControllerName == apiv1.GatewayController(c.cfg.ControllerName) {
+					ns := route.Namespace
+					if pStatus.ParentRef.Namespace != nil {
+						ns = string(*pStatus.ParentRef.Namespace)
+					}
+					gw := types.NamespacedName{
+						Namespace: ns,
+						Name:      string(pStatus.ParentRef.Name),
+					}
+					c.parentGateways[gw] = struct{}{}
 					hasOurGateway = true
 					break
 				}
 			}
-			if !hasOurGateway {
-				// If no parentRef references one of our Gateways, skip it.
-				return nil
+			if hasOurGateway {
+				for pool, _ := range poolNsNames {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: pool,
+					})
+				}
 			}
 
-			// The HTTPRoute references an InferencePool and one of our Gateways.
-			// Enqueue each referenced InferencePool for reconciliation.
-			var reqs []reconcile.Request
-			for _, poolName := range poolNames {
-				reqs = append(reqs, reconcile.Request{
-					NamespacedName: client.ObjectKey{
-						Namespace: route.Namespace,
-						Name:      poolName,
-					},
-				})
-			}
-			return reqs
+			return requests
 		}))
 
-	// Watch child objects, e.g. Deployments, created by the inference pool deployer.
 	gvks, err := d.GetGvksToWatch(ctx)
 	if err != nil {
 		return err
@@ -352,24 +386,19 @@ func (c *controllerBuilder) watchInferencePool(ctx context.Context) error {
 		if !ok {
 			return fmt.Errorf("object %T is not a client.Object", obj)
 		}
-		log.Info("watching gvk as inferencepool child", "gvk", gvk)
-		var opts []builder.OwnsOption
-		if shouldIgnoreStatusChild(gvk) {
-			opts = append(opts, builder.WithPredicates(predicate.GenerationChangedPredicate{}))
-		}
-		buildr.Owns(clientObj, opts...)
+		buildr.Owns(clientObj, builder.WithPredicates(predicate.GenerationChangedPredicate{}))
 	}
 
 	r := &inferencePoolReconciler{
-		cli:      c.cfg.Mgr.GetClient(),
-		scheme:   c.cfg.Mgr.GetScheme(),
-		deployer: d,
-	}
-	if err := buildr.Complete(r); err != nil {
-		return err
+		cli:            c.cfg.Mgr.GetClient(),
+		scheme:         c.cfg.Mgr.GetScheme(),
+		controllerName: c.cfg.ControllerName,
+		deployer:       d,
+		managedPools:   c.managedPools,
+		parentGateways: c.parentGateways,
 	}
 
-	return nil
+	return buildr.Complete(r)
 }
 
 func shouldIgnoreStatusChild(gvk schema.GroupVersionKind) bool {
@@ -435,4 +464,15 @@ func (r *controllerReconciler) ReconcileGatewayClasses(ctx context.Context, req 
 	log.Info("updated gateway class status")
 
 	return ctrl.Result{}, nil
+}
+
+func parseNamespacedName(s string) (types.NamespacedName, error) {
+	parts := strings.Split(s, "/")
+	if len(parts) != 2 {
+		return types.NamespacedName{}, fmt.Errorf("invalid NamespacedName: %s", s)
+	}
+	return types.NamespacedName{
+		Namespace: parts[0],
+		Name:      parts[1],
+	}, nil
 }
