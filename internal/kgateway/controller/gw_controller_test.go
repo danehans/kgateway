@@ -27,7 +27,7 @@ var _ = Describe("GwController", func() {
 		ctx, cancel = context.WithCancel(context.Background())
 
 		var err error
-		cancel, err = createManager(ctx, inferenceExt, nil)
+		cancel, err = createManager(ctx, nil)
 		Expect(err).NotTo(HaveOccurred())
 	})
 

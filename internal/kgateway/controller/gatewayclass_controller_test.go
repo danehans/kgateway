@@ -24,7 +24,7 @@ var _ = Describe("GatewayClass Status Controller", func() {
 
 	BeforeEach(func() {
 		var err error
-		cancel, err = createManager(ctx, nil, nil)
+		cancel, err = createManager(ctx, nil)
 		Expect(err).NotTo(HaveOccurred())
 	})
 

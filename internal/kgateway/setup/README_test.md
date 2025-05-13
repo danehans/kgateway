@@ -39,4 +39,4 @@ Test setups:
 - `autodns`: `setup/autodns` uses the standard kgateway setup with auto DNS enabled
 - `istio_service_entry`: `setup/istio_service_entry` uses the standard kgateway setup with Istio service entry integration enabled
 - `istio_destination_rule`: `setup/istio_destination_rule` uses the standard kgateway setup with Istio destination rule integration enabled
-- `inference_api`: `setup/inference_api` uses the standard kgateway setup with Inference API enabled
+- `inference_api`: `setup/inference_api` uses the standard kgateway setup with Gateway API Inference Extension enabled

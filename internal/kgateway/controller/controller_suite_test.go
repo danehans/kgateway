@@ -41,15 +41,14 @@ const (
 )
 
 var (
-	cfg          *rest.Config
-	k8sClient    client.Client
-	testEnv      *envtest.Environment
-	ctx          context.Context
-	cancel       context.CancelFunc
-	kubeconfig   string
-	gwClasses    = sets.New(gatewayClassName, altGatewayClassName)
-	scheme       *runtime.Scheme
-	inferenceExt *deployer.InferenceExtInfo
+	cfg        *rest.Config
+	k8sClient  client.Client
+	testEnv    *envtest.Environment
+	ctx        context.Context
+	cancel     context.CancelFunc
+	kubeconfig string
+	gwClasses  = sets.New(gatewayClassName, altGatewayClassName)
+	scheme     *runtime.Scheme
 )
 
 func getAssetsDir() string {
@@ -151,7 +150,6 @@ func generateKubeConfiguration(restconfig *rest.Config) string {
 
 func createManager(
 	parentCtx context.Context,
-	inferenceExt *deployer.InferenceExtInfo,
 	classConfigs map[string]*controller.ClassInfo,
 ) (context.CancelFunc, error) {
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -201,15 +199,6 @@ func createManager(
 	}
 
 	if err := controller.NewGatewayClassProvisioner(mgr, gatewayControllerName, classConfigs); err != nil {
-		return nil, err
-	}
-
-	poolCfg := &controller.InferencePoolConfig{
-		Mgr:            mgr,
-		ControllerName: gatewayControllerName,
-		InferenceExt:   inferenceExt,
-	}
-	if err := controller.NewBaseInferencePoolController(parentCtx, poolCfg, &gwCfg); err != nil {
 		return nil, err
 	}
 

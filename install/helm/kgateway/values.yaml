@@ -64,4 +64,3 @@ image:
 
 inferenceExtension:
   enabled: false
-  autoProvision: false

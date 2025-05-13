@@ -8,8 +8,7 @@ import (
 
 // helmConfig stores the top-level helm values used by the deployer.
 type helmConfig struct {
-	Gateway            *helmGateway            `json:"gateway,omitempty"`
-	InferenceExtension *helmInferenceExtension `json:"inferenceExtension,omitempty"`
+	Gateway *helmGateway `json:"gateway,omitempty"`
 }
 
 type helmGateway struct {
@@ -153,13 +152,4 @@ type helmAIExtension struct {
 	Env             []corev1.EnvVar              `json:"env,omitempty"`
 	Ports           []corev1.ContainerPort       `json:"ports,omitempty"`
 	Stats           []byte                       `json:"stats,omitempty"`
-}
-
-type helmInferenceExtension struct {
-	EndpointPicker *helmEndpointPickerExtension `json:"endpointPicker,omitempty"`
-}
-
-type helmEndpointPickerExtension struct {
-	PoolName      string `json:"poolName"`
-	PoolNamespace string `json:"poolNamespace"`
 }

@@ -19,7 +19,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	czap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	infextv1a2 "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/deployer"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/extensions2"
@@ -273,25 +272,6 @@ func (c *ControllerBuilder) Start(ctx context.Context) error {
 	if err := NewBaseGatewayController(ctx, gwCfg); err != nil {
 		setupLog.Error(err, "unable to create gateway controller")
 		return err
-	}
-
-	setupLog.Info("creating inferencepool controller")
-	// Create the InferencePool controller if the inference extension feature is enabled and the API group is registered.
-	if globalSettings.EnableInferExt &&
-		c.mgr.GetScheme().IsGroupRegistered(infextv1a2.GroupVersion.Group) {
-		poolCfg := &InferencePoolConfig{
-			Mgr: c.mgr,
-			// TODO read this from globalSettings
-			ControllerName: c.cfg.ControllerName,
-		}
-		// Enable the inference extension deployer if set.
-		if globalSettings.InferExtAutoProvision {
-			poolCfg.InferenceExt = new(deployer.InferenceExtInfo)
-		}
-		if err := NewBaseInferencePoolController(ctx, poolCfg, &gwCfg); err != nil {
-			setupLog.Error(err, "unable to create inferencepool controller")
-			return err
-		}
 	}
 
 	// mgr WaitForCacheSync is part of proxySyncer's HasSynced

@@ -40,7 +40,7 @@ var _ = Describe("GatewayClassProvisioner", func() {
 	When("no GatewayClasses exist on the cluster", func() {
 		BeforeEach(func() {
 			var err error
-			cancel, err = createManager(ctx, nil, nil)
+			cancel, err = createManager(ctx, nil)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -93,7 +93,7 @@ var _ = Describe("GatewayClassProvisioner", func() {
 			Expect(k8sClient.Create(ctx, wrongControllerGC)).To(Succeed())
 
 			var err error
-			cancel, err = createManager(ctx, nil, nil)
+			cancel, err = createManager(ctx, nil)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -123,7 +123,7 @@ var _ = Describe("GatewayClassProvisioner", func() {
 	When("the default GCs are deleted", func() {
 		BeforeEach(func() {
 			var err error
-			cancel, err = createManager(ctx, nil, nil)
+			cancel, err = createManager(ctx, nil)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -159,7 +159,7 @@ var _ = Describe("GatewayClassProvisioner", func() {
 		)
 		BeforeEach(func() {
 			var err error
-			cancel, err = createManager(ctx, nil, nil)
+			cancel, err = createManager(ctx, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("getting the default GC")
@@ -226,7 +226,7 @@ var _ = Describe("GatewayClassProvisioner", func() {
 			}
 
 			var err error
-			cancel, err = createManager(ctx, nil, customClassConfigs)
+			cancel, err = createManager(ctx, customClassConfigs)
 			Expect(err).NotTo(HaveOccurred())
 		})
 

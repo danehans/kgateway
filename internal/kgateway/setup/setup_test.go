@@ -174,7 +174,6 @@ func TestWithInferenceAPI(t *testing.T) {
 		t.Fatalf("can't get settings %v", err)
 	}
 	st.EnableInferExt = true
-	st.InferExtAutoProvision = true
 
 	runScenario(t, "testdata/inference_api", st)
 }

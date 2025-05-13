@@ -30,22 +30,6 @@ spec:
           group: inference.networking.x-k8s.io
           weight: 1
 ---
-# This service is auto created by the inference extension deployer but it's created
-# here for clean-up purposes (avoid test pollution). Repeat for additional endpoint
-# picker tests or until test cases are run in parallel.
-apiVersion: v1
-kind: Service
-metadata:
-  name: gateway-pool-endpoint-picker
-  namespace: gwtest
-spec:
-  ports:
-    - name: grpc
-      port: 9002
-      targetPort: 9002
-  selector:
-    app: gateway
----
 apiVersion: inference.networking.x-k8s.io/v1alpha2
 kind: InferencePool
 metadata:
