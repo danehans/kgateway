@@ -140,6 +140,33 @@ func (i *BackendIndex) AddBackends(gk schema.GroupKind, col krt.Collection[ir.Ba
 	}
 }
 
+// GetPoolNamesInNamespace returns the names of all InferencePools
+// (i.e. BackendObjectIRs of the InferencePool GK) in the given namespace.
+func (i *BackendIndex) GetPoolNamesInNamespace(ns string) []string {
+    var names []string
+
+    // Build the InferencePool GroupKind
+    gk := schema.GroupKind{
+        Group: wellknown.InferencePoolGVK.Group,
+        Kind:  wellknown.InferencePoolGVK.Kind,
+    }
+
+	// Find the matching collection
+    col, found := i.availableBackends[gk]
+    if !found {
+        return names
+    }
+
+	// Iterate over every BackendObjectIR; filter by namespace
+    for _, b := range col.List() {
+        if b.ObjectSource.Namespace == ns {
+            names = append(names, b.ObjectSource.Name)
+        }
+    }
+
+	return names
+}
+
 // if we want to make this function public, make it do ref grants
 func (i *BackendIndex) getBackend(kctx krt.HandlerContext, gk schema.GroupKind, n types.NamespacedName, gwport *gwv1.PortNumber) (*ir.BackendObjectIR, error) {
 	key := ir.ObjectSource{
@@ -918,6 +945,11 @@ func NewRoutesIndex(
 	return h
 }
 
+// RegisterHTTPRoute fires on every add/update/delete of the HTTPRoute IR.
+func (r *RoutesIndex) RegisterHTTPRoute(handler func(krt.Event[ir.HttpRouteIR])) krt.Syncer {
+    return r.httpRoutes.Register(handler)
+}
+
 func (h *RoutesIndex) FetchHTTPRoutesBySelector(kctx krt.HandlerContext, selector HTTPRouteSelector) []ir.HttpRouteIR {
 	return krt.Fetch(kctx, h.httpRoutes, krt.FilterIndex(h.httpBySelector, selector))
 }
@@ -1178,6 +1210,13 @@ func (h *RoutesIndex) getBackends(kctx krt.HandlerContext, src ir.ObjectSource, 
 		} else if err == nil {
 			err = &NotFoundError{NotFoundObj: to}
 		}
+
+		// Suppress backend-not-found until cache sync
+		var nfErr *NotFoundError
+		if errors.As(err, &nfErr) && !h.backends.HasSynced() {
+			err = nil
+		}
+
 		backends = append(backends, ir.HttpBackendOrDelegate{
 			Backend: &ir.BackendRefIR{
 				BackendObject: backend,

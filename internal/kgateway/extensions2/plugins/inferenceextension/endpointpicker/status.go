@@ -29,13 +29,48 @@ func buildRegisterCallback(
 	bcol krt.Collection[ir.BackendObjectIR],
 ) func() {
 	return func() {
+        // Register an HTTPRoute watcher
+        commonCol.Routes.RegisterHTTPRoute(func(evt krt.Event[ir.HttpRouteIR]) {
+            if evt.Event == controllers.EventDelete {
+                return
+            }
+
+			// Get the latest HTTPRoute object from the event
+            rt := evt.Latest().SourceObject.(*gwv1.HTTPRoute)
+
+            // Patch the status for each pool this route refs
+            for _, rule := range rt.Spec.Rules {
+                for _, ref := range rule.BackendRefs {
+                    if ref.Group != nil &&
+                       *ref.Group == gwv1.Group(infextv1a2.GroupVersion.Group) &&
+                       ref.Kind != nil &&
+                       *ref.Kind  == wellknown.InferencePoolKind {
+
+                        poolName := string(ref.Name)
+                        if ok, err := initOrPatchRouteResolvedRefs(
+                            ctx,
+                            commonCol.CrudClient,
+                            rt,
+                            commonCol.ControllerName,
+                            poolName,
+                        ); err != nil {
+                            logger.Error("failed patching HTTPRoute status", "name", rt.Name, "pool", poolName, "err", err)
+                        } else if ok {
+                            logger.Info("patched HTTPRoute status", "name", rt.Name, "pool", poolName)
+                        }
+                    }
+                }
+            }
+        })
+
+		// Register the Backend watcher
 		bcol.Register(func(o krt.Event[ir.BackendObjectIR]) {
 			if o.Event == controllers.EventDelete {
 				return
 			}
 
 			in := o.Latest()
-			ir, ok := in.ObjIr.(*inferencePool)
+			poolIR, ok := in.ObjIr.(*inferencePool)
 			if !ok {
 				return
 			}
@@ -57,7 +92,7 @@ func buildRegisterCallback(
 					irRoutes := commonCol.Routes.ListHTTPRoutesInNamespace(poolNsName.Namespace)
 
 					// Check if any HTTPRoute references this InferencePool.
-					gtwName := ir.referencedGateway(ctx, commonCol, irRoutes, poolNsName)
+					gtwName := poolIR.referencedGateway(ctx, commonCol, irRoutes, poolNsName)
 					if gtwName == "" {
 						// If needed, remove the Kgateway-managed gateway from the InferencePool status.
 						if err := removeGatewayParentRef(ctx, cli, pool, commonCol.GatewayIndex); err != nil {
@@ -103,7 +138,7 @@ func buildRegisterCallback(
 					}
 
 					// Build the InferencePool ResolvedRefs status condition.
-					newRRCond := buildResolvedRefsCondition(pool.Generation, ir.errors)
+					newRRCond := buildResolvedRefsCondition(pool.Generation, poolIR.errors)
 
 					// Check if the Accepted condition already exists and is up-to-date.
 					existingRRCond := meta.FindStatusCondition(pool.Status.Parents[pIdx].Conditions, string(infextv1a2.InferencePoolConditionResolvedRefs))
@@ -127,11 +162,17 @@ func buildRegisterCallback(
 						if err := cli.Status().Patch(ctx, pool, client.Merge); err != nil {
 							return err
 						}
-						logger.Info(
-							"patched inferencepool status",
-							"name", poolNsName.String(),
-							"namespace", poolNsName.Namespace,
-						)
+						logger.Info("patched InferencePool status", "name", poolNsName.String())
+
+						// Patch the HTTPRoute status for this InferencePool.
+						for _, rtIR := range commonCol.Routes.ListHTTPRoutesInNamespace(poolNsName.Namespace) {
+							rt := rtIR.SourceObject.(*gwv1.HTTPRoute)
+							if ok, err := initOrPatchRouteResolvedRefs(ctx, commonCol.CrudClient, rt, commonCol.ControllerName, poolNsName.Name); err != nil {
+								logger.Error("failed to patch HTTPRoute status", "route", rt.Name, "err", err)
+							} else if ok {
+								logger.Info("patched HTTPRoute status", "route", rt.Name)
+							}
+						}
 					}
 
 					return nil
@@ -356,4 +397,122 @@ func buildResolvedRefsCondition(gen int64, errs []error) metav1.Condition {
 	cond.Reason = string(infextv1a2.InferencePoolReasonInvalidExtensionRef)
 	cond.Message = fmt.Sprintf("%s %s", prefix, joined)
 	return cond
+}
+
+// patchRouteResolvedRefs scans a single HTTPRoute and, if it has exactly
+// ResolvedRefs=False with the "InferencePool %q not found" message for poolName,
+// flips it to True using MergeFrom(). Returns true if a patch was sent.
+/*func patchRouteResolvedRefs(
+    ctx context.Context,
+    cli client.Client,
+    route *gwv1.HTTPRoute,
+    controllerName string,
+    poolName string,
+) (bool, error) {
+    targetCtrl := gwv1.GatewayController(controllerName)
+
+    // check each parent status
+    found := false
+    for i := range route.Status.Parents {
+        p := &route.Status.Parents[i]
+        if p.ControllerName != targetCtrl {
+            continue
+        }
+        old := meta.FindStatusCondition(p.Conditions, string(gwv1.RouteConditionResolvedRefs))
+        if old == nil || old.Status != metav1.ConditionFalse {
+            continue
+        }
+        //expectMsg := fmt.Sprintf(`InferencePool %q not found`, poolName)
+        //if !strings.Contains(old.Message, expectMsg) {
+        //    continue
+        //}
+        found = true
+        break
+    }
+    if !found {
+        return false, nil
+    }
+
+    // Prepare a new status condition
+    newCond := metav1.Condition{
+        Type:               string(gwv1.RouteConditionResolvedRefs),
+        Status:             metav1.ConditionTrue,
+        Reason:             string(gwv1.RouteReasonResolvedRefs),
+        Message:            fmt.Sprintf("InferencePool %q found", poolName),
+        ObservedGeneration: route.Generation,
+        LastTransitionTime: metav1.Now(),
+    }
+
+    // Deep‐copy and patch the HTTPRoute status
+    orig := route.DeepCopy()
+    for i := range route.Status.Parents {
+        if route.Status.Parents[i].ControllerName == targetCtrl {
+            meta.SetStatusCondition(&route.Status.Parents[i].Conditions, newCond)
+        }
+    }
+    if err := cli.Status().Patch(ctx, route, client.MergeFrom(orig)); err != nil {
+        return false, err
+    }
+    return true, nil
+}*/
+
+// initOrPatchRouteResolvedRefs ensures that every HTTPRoute has a
+// ResolvedRefs condition set to False if its InferencePool isn’t
+// yet present, without clobbering an existing True. Returns true
+// if it patched the route status.
+func initOrPatchRouteResolvedRefs(
+    ctx context.Context,
+    cli client.Client,
+    route *gwv1.HTTPRoute,
+    controllerName string,
+    poolName string,
+) (bool, error) {
+    targetCtrl := gwv1.GatewayController(controllerName)
+
+    // Find the parent block for our controller
+    var parentIdx int = -1
+    for i := range route.Status.Parents {
+        if route.Status.Parents[i].ControllerName == targetCtrl {
+            parentIdx = i
+            break
+        }
+    }
+    if parentIdx == -1 {
+        // No parent for our controller yet; nothing to seed
+        return false, nil
+    }
+
+    parents := &route.Status.Parents[parentIdx].Conditions
+    existing := meta.FindStatusCondition(*parents, string(gwv1.RouteConditionResolvedRefs))
+
+    // If there's already a True, we leave it alone
+    if existing != nil && existing.Status == metav1.ConditionTrue {
+        return false, nil
+    }
+
+    // Build a False condition if missing or out-of-date
+    newCond := metav1.Condition{
+        Type:               string(gwv1.RouteConditionResolvedRefs),
+        Status:             metav1.ConditionFalse,
+        Reason:             string(gwv1.RouteReasonBackendNotFound),
+        Message:            fmt.Sprintf(`InferencePool %s not found`, poolName),
+        ObservedGeneration: route.Generation,
+        LastTransitionTime: metav1.Now(),
+    }
+
+    // If it already exists and is identical, no-op
+    if existing != nil &&
+       existing.Reason == newCond.Reason &&
+       existing.Message == newCond.Message &&
+       existing.ObservedGeneration == newCond.ObservedGeneration {
+        return false, nil
+    }
+
+    // Patch in the new/updated condition
+    orig := route.DeepCopy()
+    meta.SetStatusCondition(parents, newCond)
+    if err := cli.Status().Patch(ctx, route, client.MergeFrom(orig)); err != nil {
+        return false, err
+    }
+    return true, nil
 }
