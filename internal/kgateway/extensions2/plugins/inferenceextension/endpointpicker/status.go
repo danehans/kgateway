@@ -127,11 +127,60 @@ func buildRegisterCallback(
 						if err := cli.Status().Patch(ctx, pool, client.Merge); err != nil {
 							return err
 						}
-						logger.Info(
-							"patched inferencepool status",
-							"name", poolNsName.String(),
-							"namespace", poolNsName.Namespace,
-						)
+						logger.Info("patched InferencePool status", "name", poolNsName.String())
+
+						// Patch the referent HTTPRoute status to indicate that the InferencePool is now found.
+						for _, irRoute := range commonCol.Routes.ListHTTPRoutesInNamespace(poolNsName.Namespace) {
+							rt := irRoute.SourceObject.(*gwv1.HTTPRoute)
+
+							// Only consider the parent status for our controller
+							//ourCtlName := gwv1.GatewayController(commonCol.ControllerName)
+
+							// Identify existing ResolvedRefs condition
+							parentFound := false
+							for pi := range rt.Status.Parents {
+								/*parent := &rt.Status.Parents[pi]
+								if parent.ControllerName != ourCtlName {
+									// not managed by kgtw, skip
+									continue
+								}*/
+								conds := &rt.Status.Parents[pi].Conditions
+								if old := meta.FindStatusCondition(*conds, string(gwv1.RouteConditionResolvedRefs)); old != nil {
+									// Only proceed if the condition is False and the message matches the pool-not-found error
+									expectMsg := fmt.Sprintf(`InferencePool %q not found`, poolNsName.Name)
+									if old.Status == metav1.ConditionFalse && strings.Contains(old.Message, expectMsg) {
+										parentFound = true
+										break
+									}
+								}
+							}
+							if !parentFound {
+								// Either no ResolvedRefs, or it wasn't a pool-not-found error so skip
+								continue
+							}
+
+							// Build the new True condition to patch into the HTTPRoute status
+							newCond := metav1.Condition{
+								Type:               string(gwv1.RouteConditionResolvedRefs),
+								Status:             metav1.ConditionTrue,
+								Reason:             string(gwv1.RouteReasonResolvedRefs),
+								Message:            fmt.Sprintf("InferencePool %s found", poolNsName.Name),
+								ObservedGeneration: rt.Generation,
+								LastTransitionTime: metav1.Now(),
+							}
+
+							// 4) Mutate in place and patch via MergeFrom(original)
+							orig := rt.DeepCopy()
+							for pi := range rt.Status.Parents {
+								meta.SetStatusCondition(&rt.Status.Parents[pi].Conditions, newCond)
+							}
+
+							if err := cli.Status().Patch(ctx, rt, client.MergeFrom(orig)); err != nil {
+								logger.Error("failed to patch HTTPRoute status", "name", rt.Name, "err", err)
+							} else {
+								logger.Info("patched HTTPRoute ResolvedRefs=True", "name", rt.Name)
+							}
+						}
 					}
 
 					return nil

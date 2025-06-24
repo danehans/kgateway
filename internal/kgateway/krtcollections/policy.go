@@ -1178,6 +1178,13 @@ func (h *RoutesIndex) getBackends(kctx krt.HandlerContext, src ir.ObjectSource, 
 		} else if err == nil {
 			err = &NotFoundError{NotFoundObj: to}
 		}
+
+		// Suppress backend-not-found until cache sync
+		var nfErr *NotFoundError
+		if errors.As(err, &nfErr) && !h.backends.HasSynced() {
+			err = nil
+		}
+
 		backends = append(backends, ir.HttpBackendOrDelegate{
 			Backend: &ir.BackendRefIR{
 				BackendObject: backend,

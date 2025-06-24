@@ -3,11 +3,13 @@ package endpointpicker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -214,4 +216,99 @@ func (f fakeGatewayCollection) WaitUntilSynced(stop <-chan struct{}) bool       
 func (f fakeGatewayCollection) Register(handler func(krt.Event[ir.Gateway])) krt.Syncer { return f }
 func (f fakeGatewayCollection) RegisterBatch(handler func([]krt.Event[ir.Gateway], bool), _ bool) krt.Syncer {
 	return f
+}
+
+func TestPatchHTTPRouteResolvedRefs_WhenPoolFound(t *testing.T) {
+	ctx := context.Background()
+	scheme := schemes.DefaultScheme()
+	assert.NoError(t, infextv1a2.AddToScheme(scheme))
+	assert.NoError(t, gwv1.Install(scheme))
+
+	// Create HTTPRoute with ResolvedRefs=False and pool-not-found message
+	route := &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: "rt1", Namespace: "ns1"},
+		Status: gwv1.HTTPRouteStatus{
+			RouteStatus: gwv1.RouteStatus{
+				Parents: []gwv1.RouteParentStatus{{
+					ControllerName: gwv1.GatewayController("ctrl"),
+					Conditions: []metav1.Condition{{
+						Type:    string(gwv1.RouteConditionResolvedRefs),
+						Status:  metav1.ConditionFalse,
+						Message: fmt.Sprintf(`InferencePool %q not found`, "pool1"),
+					}}},
+				},
+			},
+		},
+	}
+
+	// Fake client seeded with route
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(route).
+		WithRuntimeObjects(route).
+		Build()
+
+	// Fake RoutesIndex returning our route
+	commonCol := &common.CommonCollections{CrudClient: fakeClient, ControllerName: "ctrl"}
+	commonCol.Routes = fakeRoutesIndex{route}
+
+	// Invoke status callback
+	callback := buildRegisterCallback(ctx, commonCol, nil)
+	callback()
+
+	// Verify patched HTTPRoute
+	var patched gwv1.HTTPRoute
+	err := fakeClient.Get(ctx, types.NamespacedName{Namespace: "ns1", Name: "rt1"}, &patched)
+	assert.NoError(t, err)
+	cond := meta.FindStatusCondition(patched.Status.Parents[0].Conditions, string(gwv1.RouteConditionResolvedRefs))
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Contains(t, cond.Message, "now found")
+}
+
+func TestPatchHTTPRouteResolvedRefs_SkipsWhenMessageDifferent(t *testing.T) {
+	ctx := context.Background()
+	scheme := schemes.DefaultScheme()
+	assert.NoError(t, infextv1a2.AddToScheme(scheme))
+	assert.NoError(t, gwv1.AddToScheme(scheme))
+
+	// Create HTTPRoute with ResolvedRefs=False and different message
+	route := &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: "rt2", Namespace: "ns1"},
+		Status: gwv1.HTTPRouteStatus{
+			Parents: []gwv1.RouteParentStatus{{
+				Conditions: []metav1.Condition{{
+					Type:    string(gwv1.RouteConditionResolvedRefs),
+					Status:  metav1.ConditionFalse,
+					Message: "some other error",
+				}}},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(route).
+		WithRuntimeObjects(route).
+		Build()
+
+	commonCol := &common.CommonCollections{CrudClient: fakeClient, ControllerName: "ctrl"}
+	commonCol.Routes = fakeRoutesIndex{route}
+
+	callback := buildRegisterCallback(ctx, commonCol, nil)
+	callback()
+
+	var updated gwv1.HTTPRoute
+	err := fakeClient.Get(ctx, types.NamespacedName{Namespace: "ns1", Name: "rt2"}, &updated)
+	assert.NoError(t, err)
+	cond := meta.FindStatusCondition(updated.Status.Parents[0].Conditions, string(gwv1.RouteConditionResolvedRefs))
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, "some other error", cond.Message)
+}
+
+// fakeRoutesIndex implements ListHTTPRoutesInNamespace
+type fakeRoutesIndex struct{ route *gwv1.HTTPRoute }
+
+func (f fakeRoutesIndex) ListHTTPRoutesInNamespace(ns string) []ir.HttpRouteIR {
+	if f.route.Namespace == ns {
+		return []ir.HttpRouteIR{{SourceObject: f.route}}
+	}
+	return nil
 }
