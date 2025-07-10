@@ -17,6 +17,8 @@ import (
 const (
 	// grpcPort is the default port number for a gRPC service.
 	grpcPort = 9002
+	// subsetLabelKey is the metadata key used by subset-LB for a unique endpoint.
+	subsetLabelKey = "endpoint"
 )
 
 // inferencePool defines the internal representation of an inferencePool resource.
@@ -33,6 +35,10 @@ type inferencePool struct {
 	mu sync.Mutex
 	// errors is a list of errors that occurred while processing the InferencePool.
 	errors []error
+	// failOpen indicates whether the InferencePool should fail open if the EPP is unavailable.
+	failOpen  bool
+    // endpoints is a list of endpoint hints (ip:port) for subset LB.
+    endpoints []string
 }
 
 // newInferencePool returns the internal representation of the given pool.
@@ -53,11 +59,19 @@ func newInferencePool(pool *infextv1a2.InferencePool) *inferencePool {
 		ports: []servicePort{port},
 	}
 
+	failOpen := false
+	if pool.Spec.ExtensionRef != nil &&
+	pool.Spec.ExtensionRef.FailureMode != nil &&
+	*pool.Spec.ExtensionRef.FailureMode != infextv1a2.FailClose{
+		failOpen = true
+	}
+
 	return &inferencePool{
 		objMeta:     pool.ObjectMeta,
 		podSelector: convertSelector(pool.Spec.Selector),
 		targetPort:  int32(pool.Spec.TargetPortNumber),
 		configRef:   svcIR,
+		failOpen:    failOpen,
 	}
 }
 

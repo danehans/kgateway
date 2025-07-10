@@ -7,13 +7,13 @@ import (
 	"sort"
 	"time"
 
+	headertometadata "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/header_to_metadata/v3"
+	//dramfv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/dynamic_forward_metadata/v3"
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
-	headertometadata "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/header_to_metadata/v3"
-	subsetv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/load_balancing_policies/subset/v3"
 	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	upstreamsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -50,12 +50,9 @@ var (
 	inferencePoolGVK = wellknown.InferencePoolGVK
 	inferencePoolGVR = inferencePoolGVK.GroupVersion().WithResource("inferencepools")
 
-	subsetHintKey      = "x-gateway-destination-endpoint-subset"
-	subsetMetadataKey  = "envoy.lb.subset_hint"
-	dynamicMetadataKey = "envoy.lb"
-	// epLabelKey is used both in endpoint metadata and to match against dynamic metadata
-	epLabelKey = "x-gateway-destination-endpoint"
-	//epLabelKey       = "gateway-dest"
+	//subsetHintKey     = "x-gateway-destination-endpoint-subset"
+	subsetMetadataKey = "envoy.lb.subset_hint"
+	epLabelKey        = "x-gateway-destination-endpoint"
 )
 
 func registerTypes(cli versioned.Interface) {
@@ -259,12 +256,13 @@ func NewPluginFromCollections(
 							ServiceName: out.Name,
 						}
 						out.LbPolicy = envoyclusterv3.Cluster_LEAST_REQUEST
-						out.LbSubsetConfig = &envoyclusterv3.Cluster_LbSubsetConfig{
-							FallbackPolicy: envoyclusterv3.Cluster_LbSubsetConfig_ANY_ENDPOINT,
-							SubsetSelectors: []*envoyclusterv3.Cluster_LbSubsetConfig_LbSubsetSelector{
-								{Keys: []string{epLabelKey}},
-							},
-						}
+                       // Allow fallback to all endpoints if metadata is missing
+                       out.LbSubsetConfig = &envoyclusterv3.Cluster_LbSubsetConfig{
+                           FallbackPolicy: envoyclusterv3.Cluster_LbSubsetConfig_ANY_ENDPOINT,
+                           SubsetSelectors: []*envoyclusterv3.Cluster_LbSubsetConfig_LbSubsetSelector{{
+                               Keys: []string{epLabelKey},
+                           }},
+                       }
 						return nil
 					},
 				},
@@ -388,7 +386,7 @@ func (p *endpointPickerPass) ApplyForBackend(
 		// the inner field is our well‑known subset‑hint key.
 		out.Metadata.FilterMetadata[subsetMetadataKey] = &structpb.Struct{
 			Fields: map[string]*structpb.Value{
-				subsetHintKey: structpb.NewListValue(lv),
+				epLabelKey: structpb.NewListValue(lv),
 			},
 		}
 	}
@@ -451,49 +449,37 @@ func (p *endpointPickerPass) HttpFilters(ctx context.Context, fc ir.FilterChainC
 		FailureModeAllow: failOpen,
 	}
 
-	stagedExtProc, err := plugins.NewStagedFilter(
-		wellknown.InfPoolTransformationFilterName,
-		extProcSettings,
-		plugins.BeforeStage(plugins.RouteStage),
-	)
-	if err != nil {
-		return nil, err
-	}
+   // 1) static ext_proc filter
+   stagedExtProc, err := plugins.NewStagedFilter(
+       wellknown.InfPoolTransformationFilterName,
+       extProcSettings,
+       plugins.BeforeStage(plugins.RouteStage),
+   )
+   if err != nil {
+       return nil, err
+   }
 
-	/*htom := &headertometadata.Config{
-		ResponseRules: []*headertometadata.Config_Rule{{
-			Header: "x-gateway-destination-endpoint",
-			OnHeaderPresent: &headertometadata.Config_KeyValuePair{
-				MetadataNamespace: "envoy.lb",
-				Key:               epLabelKey,
-				Type:              headertometadata.Config_STRING,
-			},
-			Remove: false,
-		}},
-	}*/
-
-	htom := &headertometadata.Config{
-		RequestRules: []*headertometadata.Config_Rule{{
-			Header: "x-gateway-destination-endpoint",
-			OnHeaderPresent: &headertometadata.Config_KeyValuePair{
-				MetadataNamespace: "envoy.lb",
-				Key:               epLabelKey,
-				Type:              headertometadata.Config_STRING,
-			},
-			Remove: false,
-		}},
-	}
-
+   htom := &headertometadata.Config{
+       RequestRules: []*headertometadata.Config_Rule{{
+           Header: epLabelKey,
+           OnHeaderPresent: &headertometadata.Config_KeyValuePair{
+               MetadataNamespace: subsetMetadataKey,
+               Key:               epLabelKey,
+               Type:              headertometadata.Config_STRING,
+           },
+           Remove: false,
+       }},
+   }
 	stagedHtom, err := plugins.NewStagedFilter(
 		"envoy.filters.http.header_to_metadata",
 		htom,
 		plugins.BeforeStage(plugins.RouteStage),
 	)
-	if err != nil {
-		return nil, err
-	}
+   if err != nil {
+       return nil, err
+   }
 
-	return []plugins.StagedHttpFilter{stagedExtProc, stagedHtom}, nil
+   return []plugins.StagedHttpFilter{stagedExtProc, stagedHtom}, nil
 }
 
 // ResourcesToAdd returns the ext_proc clusters for all used InferencePools.
@@ -501,10 +487,13 @@ func (p *endpointPickerPass) ResourcesToAdd(ctx context.Context) ir.Resources {
 	if p == nil || len(p.usedPools) == 0 {
 		return ir.Resources{}
 	}
+
 	var clusters []*envoyclusterv3.Cluster
 	for _, pool := range p.usedPools {
-		clusters = append(clusters, buildExtProcCluster(pool), buildDataCluster(pool))
+		clusters = append(clusters, buildExtProcCluster(pool), )
+		clusters = append(clusters, buildDataCluster(pool), )
 	}
+
 	return ir.Resources{Clusters: clusters}
 }
 
@@ -582,56 +571,34 @@ func buildExtProcCluster(pool *inferencePool) *envoyclusterv3.Cluster {
 
 // buildDataCluster builds and returns an EDS cluster for the given inferencePool IR.
 func buildDataCluster(pool *inferencePool) *envoyclusterv3.Cluster {
-	// must match exactly the clusterName used in ApplyForBackend
-	name := fmt.Sprintf(
-		"%s_%s_%s_%d",
-		"endpointpicker",
-		pool.objMeta.GetNamespace(),
-		pool.objMeta.GetName(),
-		pool.targetPort,
-	)
+       name := fmt.Sprintf("endpointpicker_%s_%s_data", pool.objMeta.GetName(), pool.objMeta.GetNamespace())
 
-	// Construct the subset policy
-	subsetPolicy := &subsetv3.Subset{
-		// fallback to ANY_ENDPOINT if no match (so we never break traffic)
-		FallbackPolicy: subsetv3.Subset_ANY_ENDPOINT,
-		// one selector: match on our per-endpoint metadata key
-		SubsetSelectors: []*subsetv3.Subset_LbSubsetSelector{{
-			Keys:                []string{epLabelKey},
-			SingleHostPerSubset: true, // since each "gateway-dest" value is unique
-			// use ANY_ENDPOINT fallback at selector level as well
-			FallbackPolicy: subsetv3.Subset_LbSubsetSelector_ANY_ENDPOINT,
-		}},
-		// allow your dynamic metadata list → List as a match
-		ListAsAny: true,
-		// you can tweak locality weighting (optional)
-		LocalityWeightAware: false,
-	}
-	anySubset, err := utils.MessageToAny(subsetPolicy)
-	if err != nil {
-		panic("failed to marshal subset policy: " + err.Error())
-	}
+		// Subset config: key epLabelKey ("x-gateway-destination-endpoint"), fallback ANY_ENDPOINT
+		lbSubset := &envoyclusterv3.Cluster_LbSubsetConfig{
+			FallbackPolicy: envoyclusterv3.Cluster_LbSubsetConfig_ANY_ENDPOINT,
+			SubsetSelectors: []*envoyclusterv3.Cluster_LbSubsetConfig_LbSubsetSelector{{
+				Keys: []string{epLabelKey},
+			}},
+		}
 
-	return &envoyclusterv3.Cluster{
-		Name:           name,
-		ConnectTimeout: durationpb.New(5 * time.Second),
-		ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{
-			Type: envoyclusterv3.Cluster_EDS,
-		},
-		EdsClusterConfig: &envoyclusterv3.Cluster_EdsClusterConfig{
-			EdsConfig: &envoycorev3.ConfigSource{
-				ConfigSourceSpecifier: &envoycorev3.ConfigSource_Ads{
-					Ads: &envoycorev3.AggregatedConfigSource{},
-				},
-			},
-			ServiceName: name,
-		},
-		LbPolicy: envoyclusterv3.Cluster_CLUSTER_PROVIDED,
-		TypedExtensionProtocolOptions: map[string]*anypb.Any{
-			//"envoy.extensions.load_balancing_policies.subset.lb_config.v3.Subset": anySubset,
-			"envoy.load_balancing_policies.subset": anySubset,
-		},
-	}
+       return &envoyclusterv3.Cluster{
+               Name:           name,
+               ConnectTimeout: durationpb.New(5 * time.Second),
+               ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{
+                       Type: envoyclusterv3.Cluster_EDS,
+               },
+               EdsClusterConfig: &envoyclusterv3.Cluster_EdsClusterConfig{
+                       EdsConfig: &envoycorev3.ConfigSource{
+                               ConfigSourceSpecifier: &envoycorev3.ConfigSource_Ads{
+                                       Ads: &envoycorev3.AggregatedConfigSource{},
+                               },
+                       },
+                       ServiceName: name,
+               },
+               LbPolicy: envoyclusterv3.Cluster_LEAST_REQUEST,
+               // Attach subset LB config
+               LbSubsetConfig: lbSubset,
+       }
 }
 
 func clusterNameExtProc(name, ns string) string {
