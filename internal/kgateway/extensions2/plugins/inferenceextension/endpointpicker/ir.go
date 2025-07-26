@@ -2,7 +2,9 @@ package endpointpicker
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,7 +23,8 @@ const (
 
 // inferencePool defines the internal representation of an inferencePool resource.
 type inferencePool struct {
-	objMeta metav1.ObjectMeta
+    // obj is the original object. Opaque to us other than metadata.
+    obj metav1.Object
 	// podSelector is a label selector to select Pods that are members of the InferencePool.
 	podSelector map[string]string
 	// targetPort is the port number that should be targeted for Pods selected by Selector.
@@ -33,10 +36,12 @@ type inferencePool struct {
 	mu sync.Mutex
 	// errors is a list of errors that occurred while processing the InferencePool.
 	errors []error
+	// Endpoints define the list of endpoints resolved by the podSelector.
+	Endpoints Endpoints
 }
 
 // newInferencePool returns the internal representation of the given pool.
-func newInferencePool(pool *infextv1a2.InferencePool) *inferencePool {
+func newInferencePool(pool *infextv1a2.InferencePool, eps []Endpoint) *inferencePool {
 	port := servicePort{name: "grpc", portNum: (int32(grpcPort))}
 	if pool.Spec.ExtensionRef.PortNumber != nil {
 		port.portNum = int32(*pool.Spec.ExtensionRef.PortNumber)
@@ -54,16 +59,17 @@ func newInferencePool(pool *infextv1a2.InferencePool) *inferencePool {
 	}
 
 	return &inferencePool{
-		objMeta:     pool.ObjectMeta,
+		obj:         pool,
 		podSelector: convertSelector(pool.Spec.Selector),
 		targetPort:  int32(pool.Spec.TargetPortNumber),
 		configRef:   svcIR,
+		Endpoints:   eps,
 	}
 }
 
 // In case multiple pools attached to the same resource, we sort by creation time.
 func (ir *inferencePool) CreationTime() time.Time {
-	return ir.objMeta.CreationTimestamp.Time
+	return ir.obj.GetCreationTimestamp().Time
 }
 
 func (ir *inferencePool) Selector() map[string]string {
@@ -161,6 +167,36 @@ func (s service) MarshalJSON() ([]byte, error) {
 		Name:      s.Name,
 		Ports:     s.ports,
 	})
+}
+
+// Endpoint defines the internal representation of an Endpoint.
+type Endpoint struct {
+	// Address is the IP address address of the endpoint.
+	Address string
+	// Port is the port exposed by the endpoint.
+	Port int32
+}
+
+// Endpoints is a named slice of Endpoint.
+type Endpoints []Endpoint
+
+// String satisfies fmt.Stringer on a single Endpoint.
+func (e Endpoint) String() string {
+    return fmt.Sprintf("%s:%d", e.Address, e.Port)
+}
+
+// ToString returns the comma-joined list of endpoints, e.g. "10.0.0.1:9000,10.0.0.2:9000".
+func (eps Endpoints) ToString() string {
+    if len(eps) == 0 {
+        return ""
+    }
+
+    parts := make([]string, len(eps))
+    for i, ep := range eps {
+        parts[i] = ep.String()
+    }
+
+    return strings.Join(parts, ",")
 }
 
 func versionEquals(a, b metav1.Object) bool {

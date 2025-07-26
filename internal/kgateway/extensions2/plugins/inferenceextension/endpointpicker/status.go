@@ -8,7 +8,8 @@ import (
 
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
-	corev1 "k8s.io/api/core/v1"
+
+	//corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,6 +23,13 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/extensions2/common"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/ir"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
+
+	corev1 "k8s.io/api/core/v1"
+	//"k8s.io/apimachinery/pkg/api/errors"
+	//"k8s.io/apimachinery/pkg/util/intstr"
+	//corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
+	//"k8s.io/client-go/tools/cache"
+	//infextv1a2 "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 )
 
 const (
@@ -45,8 +53,65 @@ func buildRegisterCallback(
 		registerRouteHandlers(ctx, commonCol, bcol, poolIdx)
 		registerPoolHandlers(ctx, commonCol, bcol)
 		registerServiceHandlers(ctx, commonCol, bcol)
+
+		// Subscribe to adds/updates/deletes of InferencePool
+		// Watch add/update InferencePool events
+		/*bcol.Register(func(ev krt.Event[ir.BackendObjectIR]) {
+			if ev.Event == controllers.EventDelete {
+				pool := ev.Old.Obj.(*infextv1a2.InferencePool)
+				name := pool.Name + "-svc"
+				svcClient := commonCol.Client.Kube().CoreV1().Services(pool.Namespace)
+				if err := svcClient.Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+					logger.Error("failed to delete Service for InferencePool", "svc", name, "err", err)
+				}
+				return
+			}
+			pool := ev.Latest().Obj.(*infextv1a2.InferencePool)
+			svcClient := commonCol.Client.Kube().CoreV1().Services(pool.Namespace)
+			createOrUpdateService(ctx, pool, svcClient)
+		})*/
 	}
 }
+
+// createOrUpdateService makes sure there’s a Service named <pool.Name>-svc in the same namespace,
+// with a port that matches pool.Spec.TargetPortNumber and selectors from pool.Spec.Selector.
+/*func createOrUpdateService(
+	ctx context.Context,
+	pool *infextv1a2.InferencePool,
+	svcClient corev1client.ServiceInterface,
+) {
+	name := pool.Name + "-svc"
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: pool.Namespace,
+			Name:      name,
+			Labels:    map[string]string{"inference-pool": pool.Name},
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(pool, inferencePoolGVK),
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: convertSelector(pool.Spec.Selector),
+			Ports: []corev1.ServicePort{{
+				Name:       "pool-target-port",
+				Protocol:   corev1.ProtocolTCP,
+				Port:       pool.Spec.TargetPortNumber,
+				TargetPort: intstr.FromInt(int(pool.Spec.TargetPortNumber)),
+			}},
+		},
+	}
+
+	if _, err := svcClient.Create(ctx, svc, metav1.CreateOptions{}); err != nil {
+		if errors.IsAlreadyExists(err) {
+			// patch the selector/port in case they changed
+			if _, err = svcClient.Update(ctx, svc, metav1.UpdateOptions{}); err != nil {
+				logger.Error("failed to update Service for InferencePool", "svc", name, "err", err)
+			}
+		} else {
+			logger.Error("failed to create Service for InferencePool", "pool", pool.Name, "err", err)
+		}
+	}
+}*/
 
 // registerPoolHandlers sets up handlers for InferencePool events that affect their status.
 func registerPoolHandlers(
