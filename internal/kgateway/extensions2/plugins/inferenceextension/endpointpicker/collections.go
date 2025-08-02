@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
-	infv1a2 "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	"sigs.k8s.io/gateway-api-inference-extension/client-go/clientset/versioned"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/extensions2/common"
@@ -47,14 +47,14 @@ func (pp poolPods) ResourceName() string {
 }
 
 func registerTypes(cli versioned.Interface) {
-	skubeclient.Register[*infv1a2.InferencePool](
+	skubeclient.Register[*inf.InferencePool](
 		inferencePoolGVR,
 		inferencePoolGVK,
 		func(c skubeclient.ClientGetter, namespace string, o metav1.ListOptions) (runtime.Object, error) {
-			return cli.InferenceV1alpha2().InferencePools(namespace).List(context.Background(), o)
+			return cli.InferenceV1().InferencePools(namespace).List(context.Background(), o)
 		},
 		func(c skubeclient.ClientGetter, namespace string, o metav1.ListOptions) (watch.Interface, error) {
-			return cli.InferenceV1alpha2().InferencePools(namespace).Watch(context.Background(), o)
+			return cli.InferenceV1().InferencePools(namespace).Watch(context.Background(), o)
 		},
 	)
 }
@@ -74,7 +74,7 @@ func initInferencePoolCollections(
 	registerTypes(cli)
 
 	// Create an InferencePool krt collection
-	poolCol := krt.WrapClient(kclient.NewFiltered[*infv1a2.InferencePool](
+	poolCol := krt.WrapClient(kclient.NewFiltered[*inf.InferencePool](
 		commonCol.Client,
 		kclient.Filter{ObjectFilter: commonCol.Client.ObjectFilter()},
 	), commonCol.KrtOpts.ToOptions("InferencePool")...)
@@ -113,7 +113,7 @@ func initInferencePoolCollections(
 	// Controller backends – only the InferencePool drives this collection
 	backendsCtl := krt.NewCollection(
 		poolCol,
-		func(_ krt.HandlerContext, p *infv1a2.InferencePool) *ir.BackendObjectIR {
+		func(_ krt.HandlerContext, p *inf.InferencePool) *ir.BackendObjectIR {
 			irPool := newInferencePool(p)
 			if errs := validatePool(p, commonCol.Services); len(errs) > 0 {
 				irPool.setErrors(errs)

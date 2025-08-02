@@ -11,31 +11,31 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
-	infv1a2 "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/krtcollections"
 	krtpkg "github.com/kgateway-dev/kgateway/v2/pkg/utils/krtutil"
 )
 
-func makePool(opts ...func(*infv1a2.InferencePool)) *inferencePool {
-	base := &infv1a2.InferencePool{
+func makePool(opts ...func(*inf.InferencePool)) *inferencePool {
+	base := &inf.InferencePool{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:         "ns",
 			Name:              "p",
 			CreationTimestamp: metav1.NewTime(time.Now().Add(-5 * time.Minute)),
 		},
-		Spec: infv1a2.InferencePoolSpec{
-			Selector:         map[infv1a2.LabelKey]infv1a2.LabelValue{"app": "t"},
+		Spec: inf.InferencePoolSpec{
+			Selector:         map[inf.LabelKey]inf.LabelValue{"app": "t"},
 			TargetPortNumber: 8080,
-			EndpointPickerConfig: infv1a2.EndpointPickerConfig{
-				ExtensionRef: &infv1a2.Extension{
-					ExtensionReference: infv1a2.ExtensionReference{
+			EndpointPickerConfig: inf.EndpointPickerConfig{
+				ExtensionRef: &inf.Extension{
+					ExtensionReference: inf.ExtensionReference{
 						Name:       "svc",
-						PortNumber: ptr.To(infv1a2.PortNumber(1234)),
+						PortNumber: ptr.To(inf.PortNumber(1234)),
 					},
-					ExtensionConnection: infv1a2.ExtensionConnection{
-						FailureMode: func() *infv1a2.ExtensionFailureMode {
-							m := infv1a2.FailClose
+					ExtensionConnection: inf.ExtensionConnection{
+						FailureMode: func() *inf.ExtensionFailureMode {
+							m := inf.FailClose
 							return &m
 						}(),
 					},
@@ -52,7 +52,7 @@ func makePool(opts ...func(*infv1a2.InferencePool)) *inferencePool {
 
 func TestNewInferencePool_DefaultAndOverridePort(t *testing.T) {
 	// Set the default grpcPort
-	p := makePool(func(pool *infv1a2.InferencePool) {
+	p := makePool(func(pool *inf.InferencePool) {
 		pool.Spec.EndpointPickerConfig.ExtensionRef.PortNumber = nil
 	})
 
@@ -75,8 +75,8 @@ func TestIsFailOpen(t *testing.T) {
 	assert.False(t, isFailOpen(nil))
 
 	// Set FailureMode to FailOpen
-	r := makePool(func(pool *infv1a2.InferencePool) {
-		m := infv1a2.FailOpen
+	r := makePool(func(pool *inf.InferencePool) {
+		m := inf.FailOpen
 		pool.Spec.EndpointPickerConfig.ExtensionRef.ExtensionConnection.FailureMode = &m
 	})
 	assert.True(t, r.failOpen)
@@ -117,14 +117,14 @@ func TestEqualsAndEndpoints(t *testing.T) {
 	assert.True(t, a.Equals(b))
 
 	// Different selector
-	c := makePool(func(pool *infv1a2.InferencePool) {
-		pool.Spec.Selector = map[infv1a2.LabelKey]infv1a2.LabelValue{"app": "x"}
+	c := makePool(func(pool *inf.InferencePool) {
+		pool.Spec.Selector = map[inf.LabelKey]inf.LabelValue{"app": "x"}
 	})
 	assert.False(t, a.Equals(c))
 	assert.False(t, c.Equals(a))
 
 	// Different targetPort
-	d := makePool(func(pool *infv1a2.InferencePool) {
+	d := makePool(func(pool *inf.InferencePool) {
 		pool.Spec.TargetPortNumber = 9999
 	})
 	assert.False(t, a.Equals(d))
@@ -137,8 +137,8 @@ func TestEqualsAndEndpoints(t *testing.T) {
 	assert.False(t, a.Equals(b))
 
 	// Failure mode difference
-	e := makePool(func(pool *infv1a2.InferencePool) {
-		m := infv1a2.FailOpen
+	e := makePool(func(pool *inf.InferencePool) {
+		m := inf.FailOpen
 		pool.Spec.ExtensionRef.ExtensionConnection.FailureMode = &m
 	})
 	assert.False(t, a.Equals(e))

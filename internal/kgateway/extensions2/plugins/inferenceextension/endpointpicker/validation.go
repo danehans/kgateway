@@ -6,7 +6,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	infextv1a2 "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
 )
@@ -16,7 +16,7 @@ import (
 const defaultInfPoolExtRefPort = 9002
 
 // validatePool verifies that the given InferencePool is valid.
-func validatePool(pool *infextv1a2.InferencePool, svcCol krt.Collection[*corev1.Service]) []error {
+func validatePool(pool *inf.InferencePool, svcCol krt.Collection[*corev1.Service]) []error {
 	var errs []error
 
 	// ExtensionRef must be defined

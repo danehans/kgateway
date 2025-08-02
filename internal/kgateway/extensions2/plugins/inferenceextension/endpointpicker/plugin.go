@@ -21,7 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	infv1a2 "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/extensions2/common"
 	extplug "github.com/kgateway-dev/kgateway/v2/internal/kgateway/extensions2/plugin"
@@ -109,7 +109,7 @@ func buildPolicyWrapperCollection(
 
 			return &ir.PolicyWrapper{
 				ObjectSource: be.ObjectSource,
-				Policy:       be.Obj.(*infv1a2.InferencePool),
+				Policy:       be.Obj.(*inf.InferencePool),
 				PolicyIR:     irPool,
 			}
 		},
@@ -273,7 +273,7 @@ func (p *endpointPickerPass) HttpFilters(ctx context.Context, fc ir.FilterChainC
 
 	// Create a pool as placeholder for the static config
 	tmpPool := &inferencePool{
-		obj: &infv1a2.InferencePool{
+		obj: &inf.InferencePool{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "placeholder-pool",
 				Namespace: "placeholder-namespace",

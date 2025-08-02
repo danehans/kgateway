@@ -9,7 +9,7 @@ import (
 
 	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	infextv1a2 "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/ir"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/krtcollections"
@@ -50,7 +50,7 @@ type inferencePool struct {
 }
 
 // newInferencePool returns the internal representation of the given pool.
-func newInferencePool(pool *infextv1a2.InferencePool) *inferencePool {
+func newInferencePool(pool *inf.InferencePool) *inferencePool {
 	port := servicePort{name: "grpc", portNum: (int32(grpcPort))}
 	if pool.Spec.ExtensionRef.PortNumber != nil {
 		port.portNum = int32(*pool.Spec.ExtensionRef.PortNumber)
@@ -58,7 +58,7 @@ func newInferencePool(pool *infextv1a2.InferencePool) *inferencePool {
 
 	svcIR := &service{
 		ObjectSource: ir.ObjectSource{
-			Group:     infextv1a2.GroupVersion.Group,
+			Group:     inf.GroupVersion.Group,
 			Kind:      wellknown.InferencePoolKind,
 			Namespace: pool.Namespace,
 			Name:      string(pool.Spec.ExtensionRef.Name),
@@ -189,7 +189,7 @@ func (ir *inferencePool) failOpenEqual(other *inferencePool) bool {
 	return ir.failOpen == other.failOpen
 }
 
-func convertSelector(selector map[infextv1a2.LabelKey]infextv1a2.LabelValue) map[string]string {
+func convertSelector(selector map[inf.LabelKey]inf.LabelValue) map[string]string {
 	result := make(map[string]string, len(selector))
 	for k, v := range selector {
 		result[string(k)] = string(v)
@@ -268,14 +268,14 @@ func versionEquals(a, b metav1.Object) bool {
 	return versionEquals && a.GetUID() == b.GetUID()
 }
 
-func isFailOpen(pool *infextv1a2.InferencePool) bool {
+func isFailOpen(pool *inf.InferencePool) bool {
 	if pool == nil ||
 		pool.Spec.EndpointPickerConfig.ExtensionRef == nil {
 		return false
 	}
 
 	if pool.Spec.EndpointPickerConfig.ExtensionRef.ExtensionConnection.FailureMode == nil ||
-		*pool.Spec.EndpointPickerConfig.ExtensionRef.ExtensionConnection.FailureMode == infextv1a2.FailClose {
+		*pool.Spec.EndpointPickerConfig.ExtensionRef.ExtensionConnection.FailureMode == inf.FailClose {
 		return false
 	}
 

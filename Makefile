@@ -500,9 +500,11 @@ gw-api-crds: ## Install the Gateway API CRDs
 # The version of the k8s gateway api inference extension CRDs to install.
 GIE_CRD_VERSION ?= $(shell go list -m sigs.k8s.io/gateway-api-inference-extension | awk '{print $$2}')
 
+# TODO [danehans]: Replace commit hash with GIE_CRD_VERSION once upstream publishes the v1.0.0 tag.
+# https://github.com/kgateway-dev/kgateway/issues/11964
 .PHONY: gie-crds
 gie-crds: gw-api-crds ## Install the Gateway API Inference Extension CRDs
-	kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/$(GIE_CRD_VERSION)/manifests.yaml"
+	kubectl kustomize "https://github.com/kubernetes-sigs/gateway-api-inference-extension/config/crd/?ref=2d7613c9b2bebada4c212495326272137c5846db" | kubectl apply -f -
 
 .PHONY: kind-metallb
 metallb: ## Install the MetalLB load balancer
