@@ -20,7 +20,7 @@ require (
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/mitchellh/hashstructure v1.0.0
 	github.com/onsi/ginkgo/v2 v2.23.4
-	github.com/onsi/gomega v1.37.0
+	github.com/onsi/gomega v1.38.0
 	github.com/solo-io/envoy-gloo/go v0.0.0-20250102165327-33a74fcf9966
 	github.com/solo-io/go-list-licenses v0.1.4
 	github.com/solo-io/go-utils v0.27.3
@@ -31,16 +31,16 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6
 	golang.org/x/net v0.42.0
-	google.golang.org/grpc v1.73.0
+	google.golang.org/grpc v1.74.2
 	google.golang.org/protobuf v1.36.6
 	helm.sh/helm/v3 v3.17.3
 	istio.io/api v1.26.0-alpha.0.0.20250708022530-f8c0a53baaf9
 	istio.io/client-go v1.26.0-alpha.0.0.20250708023131-44cd7c661bad
 	istio.io/istio v0.0.0-20250728092114-6111de93199e
-	k8s.io/api v0.33.2
-	k8s.io/apiextensions-apiserver v0.33.2
-	k8s.io/apimachinery v0.33.2
-	k8s.io/client-go v0.33.2
+	k8s.io/api v0.33.3
+	k8s.io/apiextensions-apiserver v0.33.3
+	k8s.io/apimachinery v0.33.3
+	k8s.io/client-go v0.33.3
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff
 	k8s.io/utils v0.0.0-20250502105355-0f33e8f1c979
@@ -49,7 +49,7 @@ require (
 	sigs.k8s.io/gateway-api v1.3.0
 	sigs.k8s.io/gateway-api-inference-extension v0.5.1
 	sigs.k8s.io/structured-merge-diff/v4 v4.7.0
-	sigs.k8s.io/yaml v1.5.0
+	sigs.k8s.io/yaml v1.6.0
 )
 
 require (
@@ -68,7 +68,7 @@ require (
 	github.com/digitorus/timestamp v0.0.0-20231217203849-220c5c2851b7 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/elliotchance/orderedmap v1.8.0 // indirect
-	github.com/goccy/go-yaml v1.17.1 // indirect
+	github.com/goccy/go-yaml v1.18.0 // indirect
 	github.com/google/certificate-transparency-go v1.3.1 // indirect
 	github.com/google/go-github/v74 v74.0.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2 // indirect
@@ -610,10 +610,10 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	honnef.co/go/tools v0.6.1 // indirect
-	k8s.io/apiserver v0.33.2 // indirect
+	k8s.io/apiserver v0.33.3 // indirect
 	k8s.io/cli-runtime v0.33.0 // indirect
-	k8s.io/code-generator v0.33.2 // indirect
-	k8s.io/component-base v0.33.2 // indirect
+	k8s.io/code-generator v0.33.3 // indirect
+	k8s.io/component-base v0.33.3 // indirect
 	k8s.io/gengo/v2 v2.0.0-20250207200755-1244d31929d7 // indirect
 	k8s.io/kubectl v0.33.0 // indirect
 	lukechampine.com/blake3 v1.2.1 // indirect
