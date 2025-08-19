@@ -29,12 +29,6 @@ func TestValidatePool(t *testing.T) {
 		wantErrs   int
 	}{
 		{
-			name:       "missing ExtensionRef",
-			modifyPool: func(p *inf.InferencePool) { p.Spec.ExtensionRef = nil },
-			svc:        makeSvc(ns, svcName, 80, corev1.ProtocolTCP, corev1.ServiceTypeClusterIP),
-			wantErrs:   1,
-		},
-		{
 			name: "unsupported Group",
 			modifyPool: func(p *inf.InferencePool) {
 				p.Spec.ExtensionRef.Group = ptr.To(inf.Group("foo.example.com"))
@@ -45,7 +39,7 @@ func TestValidatePool(t *testing.T) {
 		{
 			name: "unsupported Kind",
 			modifyPool: func(p *inf.InferencePool) {
-				p.Spec.ExtensionRef.Kind = ptr.To(inf.Kind(wellknown.ConfigMapGVK.Kind))
+				p.Spec.ExtensionRef.Kind = inf.Kind(wellknown.ConfigMapGVK.Kind)
 			},
 			svc:      makeSvc(ns, svcName, 80, corev1.ProtocolTCP, corev1.ServiceTypeClusterIP),
 			wantErrs: 1,
@@ -140,17 +134,15 @@ func makeBasePool(ns, svcName string) *inf.InferencePool {
 			Namespace: ns,
 		},
 		Spec: inf.InferencePoolSpec{
-			Selector:         map[inf.LabelKey]inf.LabelValue{"foo": "bar"},
-			TargetPortNumber: 9002,
-			EndpointPickerConfig: inf.EndpointPickerConfig{
-				ExtensionRef: &inf.Extension{
-					ExtensionReference: inf.ExtensionReference{
-						Group:      ptr.To(inf.Group("")),
-						Kind:       ptr.To(inf.Kind(wellknown.ServiceKind)),
-						Name:       inf.ObjectName(svcName),
-						PortNumber: ptr.To(inf.PortNumber(80)),
-					},
-				},
+			Selector: inf.LabelSelector{
+				MatchLabels: map[inf.LabelKey]inf.LabelValue{"foo": "bar"},
+			},
+			TargetPorts: []inf.Port{{Number: 9002}},
+			ExtensionRef: inf.Extension{
+				Group:      ptr.To(inf.Group("")),
+				Kind:       inf.Kind(wellknown.ServiceKind),
+				Name:       inf.ObjectName(svcName),
+				PortNumber: ptr.To(inf.PortNumber(80)),
 			},
 		},
 	}

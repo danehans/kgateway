@@ -6,7 +6,6 @@ import (
 	"github.com/agentgateway/agentgateway/go/api"
 	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
 	"istio.io/istio/pkg/kube/krt"
-	"istio.io/istio/pkg/ptr"
 	"istio.io/istio/pkg/slices"
 	corev1 "k8s.io/api/core/v1"
 	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
@@ -14,10 +13,12 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/utils/krtutil"
+	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
 )
 
 const (
-	a2aProtocol = "kgateway.dev/a2a"
+	a2aProtocol    = "kgateway.dev/a2a"
+	defaultEppPort = 9002
 )
 
 func ADPPolicyCollection(inputs Inputs, binds krt.Collection[ADPResourcesForGateway], krtopts krtutil.KrtOptions) krt.Collection[ADPResourcesForGateway] {
@@ -25,28 +26,30 @@ func ADPPolicyCollection(inputs Inputs, binds krt.Collection[ADPResourcesForGate
 
 	inference := krt.NewManyCollection(inputs.InferencePools, func(ctx krt.HandlerContext, i *inf.InferencePool) []ADPPolicy {
 		// 'service/{namespace}/{hostname}:{port}'
-		svc := fmt.Sprintf("service/%v/%v.%v.inference.%v:%v", i.Namespace, i.Name, i.Namespace, domainSuffix, i.Spec.TargetPortNumber)
+		// InferencePool v1 only supports single port
+		svc := fmt.Sprintf("service/%v/%v.%v.inference.%v:%v", i.Namespace, i.Name, i.Namespace, domainSuffix, i.Spec.TargetPorts[0].Number)
+
 		er := i.Spec.ExtensionRef
-		if er == nil {
-			return nil
-		}
-		erf := er.ExtensionReference
-		if erf.Group != nil && *erf.Group != "" {
+		if er.Group != nil && *er.Group != "" {
 			return nil
 		}
 
-		if erf.Kind != nil && *erf.Kind != "Service" {
+		if er.Kind != wellknown.ServiceKind {
 			return nil
 		}
-		eppPort := ptr.OrDefault(erf.PortNumber, 9002)
+
+		eppPort := defaultEppPort
+		if er.PortNumber != nil {
+			eppPort = int(*er.PortNumber)
+		}
 
 		eppSvc := fmt.Sprintf("%v/%v.%v.svc.%v",
-			i.Namespace, erf.Name, i.Namespace, domainSuffix)
+			i.Namespace, er.Name, i.Namespace, domainSuffix)
 		eppPolicyTarget := fmt.Sprintf("service/%v:%v",
 			eppSvc, eppPort)
 
 		failureMode := api.PolicySpec_InferenceRouting_FAIL_CLOSED
-		if er.FailureMode == nil || *er.FailureMode == inf.FailOpen {
+		if er.FailureMode == inf.FailOpen {
 			failureMode = api.PolicySpec_InferenceRouting_FAIL_OPEN
 		}
 		inferencePolicy := &api.Policy{

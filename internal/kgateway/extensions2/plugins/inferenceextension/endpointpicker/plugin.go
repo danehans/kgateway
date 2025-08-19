@@ -125,7 +125,9 @@ func buildBackendObjIrFromPool(pool *inferencePool) *ir.BackendObjectIR {
 		Namespace: pool.obj.GetNamespace(),
 		Name:      pool.obj.GetName(),
 	}
-	backend := ir.NewBackendObjectIR(objSrc, pool.targetPort, "")
+	// The backend's port is the first target port of the pool.
+	// InferencePool v1 only supports single port.
+	backend := ir.NewBackendObjectIR(objSrc, pool.targetPorts[0].number, "")
 	backend.GvPrefix = poolGroupKindName
 	backend.Obj = pool.obj
 	backend.ObjIr = pool

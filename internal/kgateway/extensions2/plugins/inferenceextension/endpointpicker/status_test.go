@@ -194,8 +194,8 @@ func TestUpdatePoolStatus_WithReference_NoErrors(t *testing.T) {
 	require.Len(t, updated.Status.Parents, 1)
 	p := updated.Status.Parents[0]
 	assert.Equal(t, inf.ParentGatewayReference{
-		Kind:      ptr.To(inf.Kind(wellknown.GatewayKind)),
-		Namespace: ptr.To(inf.Namespace(ns)),
+		Kind:      inf.Kind(wellknown.GatewayKind),
+		Namespace: inf.Namespace(ns),
 		Name:      inf.ObjectName(gwName),
 	}, p.GatewayRef)
 
@@ -311,16 +311,16 @@ func TestUpdatePoolStatus_WithReference_WithErrors(t *testing.T) {
 	// Check the gateway parent status
 	var gwParent, defaultParent inf.PoolStatus
 	for _, p := range updated.Status.Parents {
-		if p.GatewayRef.Kind != nil && *p.GatewayRef.Kind == inf.Kind(wellknown.GatewayKind) {
+		if p.GatewayRef.Kind == inf.Kind(wellknown.GatewayKind) {
 			gwParent = p
-		} else if p.GatewayRef.Kind != nil && *p.GatewayRef.Kind == inf.Kind(defaultInfPoolStatusKind) {
+		} else if p.GatewayRef.Kind == inf.Kind(defaultInfPoolStatusKind) {
 			defaultParent = p
 		}
 	}
 	require.NotZero(t, gwParent)
 	assert.Equal(t, inf.ParentGatewayReference{
-		Kind:      ptr.To(inf.Kind(wellknown.GatewayKind)),
-		Namespace: ptr.To(inf.Namespace(ns)),
+		Kind:      inf.Kind(wellknown.GatewayKind),
+		Namespace: inf.Namespace(ns),
 		Name:      inf.ObjectName(gwName),
 	}, gwParent.GatewayRef)
 	accepted := meta.FindStatusCondition(gwParent.Conditions, string(inf.InferencePoolConditionAccepted))
@@ -335,7 +335,7 @@ func TestUpdatePoolStatus_WithReference_WithErrors(t *testing.T) {
 	// Default parent
 	require.NotZero(t, defaultParent)
 	assert.Equal(t, inf.ParentGatewayReference{
-		Kind: ptr.To(inf.Kind(defaultInfPoolStatusKind)),
+		Kind: inf.Kind(defaultInfPoolStatusKind),
 		Name: inf.ObjectName(defaultInfPoolStatusName),
 	}, defaultParent.GatewayRef)
 	require.Len(t, defaultParent.Conditions, 1)
@@ -494,8 +494,8 @@ func TestUpdatePoolStatus_WithExtraGws(t *testing.T) {
 	require.Len(t, updated.Status.Parents, 1)
 
 	assert.Equal(t, inf.ParentGatewayReference{
-		Kind:      ptr.To(inf.Kind(wellknown.GatewayKind)),
-		Namespace: ptr.To(inf.Namespace(ns)),
+		Kind:      inf.Kind(wellknown.GatewayKind),
+		Namespace: inf.Namespace(ns),
 		Name:      inf.ObjectName(gwName),
 	}, updated.Status.Parents[0].GatewayRef)
 }
@@ -672,15 +672,15 @@ func TestParentsEqual(t *testing.T) {
 	a := []inf.PoolStatus{
 		{
 			GatewayRef: inf.ParentGatewayReference{
-				Kind:      ptr.To(inf.Kind(wellknown.GatewayKind)),
-				Namespace: ptr.To(inf.Namespace("ns")),
+				Kind:      inf.Kind(wellknown.GatewayKind),
+				Namespace: inf.Namespace("ns"),
 				Name:      "gw1",
 			},
 		},
 		{
 			GatewayRef: inf.ParentGatewayReference{
 				Group: ptr.To(inf.Group(inf.GroupVersion.Group)),
-				Kind:  ptr.To(inf.Kind(defaultInfPoolStatusKind)),
+				Kind:  inf.Kind(defaultInfPoolStatusKind),
 				Name:  defaultInfPoolStatusName,
 			},
 		},
@@ -688,15 +688,15 @@ func TestParentsEqual(t *testing.T) {
 	b := []inf.PoolStatus{
 		{
 			GatewayRef: inf.ParentGatewayReference{
-				Kind: ptr.To(inf.Kind(defaultInfPoolStatusKind)),
+				Kind: inf.Kind(defaultInfPoolStatusKind),
 				Name: defaultInfPoolStatusName,
 			},
 		},
 		{
 			GatewayRef: inf.ParentGatewayReference{
 				Group:     ptr.To(inf.Group(inf.GroupVersion.Group)),
-				Kind:      ptr.To(inf.Kind(wellknown.GatewayKind)),
-				Namespace: ptr.To(inf.Namespace("ns")),
+				Kind:      inf.Kind(wellknown.GatewayKind),
+				Namespace: inf.Namespace("ns"),
 				Name:      "gw1",
 			},
 		},

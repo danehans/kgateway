@@ -28,7 +28,7 @@ func makeBackendIR(pool *inf.InferencePool) *ir.BackendObjectIR {
 		Namespace: pool.Namespace,
 		Name:      pool.Name,
 	}
-	be := ir.NewBackendObjectIR(src, pool.Spec.TargetPortNumber, "")
+	be := ir.NewBackendObjectIR(src, int32(pool.Spec.TargetPorts[0].Number), "")
 	be.Obj = pool
 
 	// Wrap the same pool in our internal IR so we can inject errors
@@ -42,12 +42,12 @@ func TestProcessPoolBackendObjIR_BuildsLoadAssignment(t *testing.T) {
 	pool := &inf.InferencePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns"},
 		Spec: inf.InferencePoolSpec{
-			Selector:         map[inf.LabelKey]inf.LabelValue{"app": "test"},
-			TargetPortNumber: 9000,
-			EndpointPickerConfig: inf.EndpointPickerConfig{
-				ExtensionRef: &inf.Extension{
-					ExtensionReference: inf.ExtensionReference{Name: "svc"},
-				},
+			Selector: inf.LabelSelector{
+				MatchLabels: map[inf.LabelKey]inf.LabelValue{"app": "test"},
+			},
+			TargetPorts: []inf.Port{inf.Port{Number: 9000}},
+			ExtensionRef: inf.Extension{
+				Name: "svc",
 			},
 		},
 	}
@@ -106,11 +106,9 @@ func TestProcessPoolBackendObjIR_SkipsOnErrors(t *testing.T) {
 	pool := &inf.InferencePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns"},
 		Spec: inf.InferencePoolSpec{
-			TargetPortNumber: 9000,
-			EndpointPickerConfig: inf.EndpointPickerConfig{
-				ExtensionRef: &inf.Extension{
-					ExtensionReference: inf.ExtensionReference{Name: "svc"},
-				},
+			TargetPorts: []inf.Port{inf.Port{Number: 9000}},
+			ExtensionRef: inf.Extension{
+				Name: "svc",
 			},
 		},
 	}

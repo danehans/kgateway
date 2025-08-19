@@ -25,21 +25,17 @@ func makePool(opts ...func(*inf.InferencePool)) *inferencePool {
 			CreationTimestamp: metav1.NewTime(time.Now().Add(-5 * time.Minute)),
 		},
 		Spec: inf.InferencePoolSpec{
-			Selector:         map[inf.LabelKey]inf.LabelValue{"app": "t"},
-			TargetPortNumber: 8080,
-			EndpointPickerConfig: inf.EndpointPickerConfig{
-				ExtensionRef: &inf.Extension{
-					ExtensionReference: inf.ExtensionReference{
-						Name:       "svc",
-						PortNumber: ptr.To(inf.PortNumber(1234)),
-					},
-					ExtensionConnection: inf.ExtensionConnection{
-						FailureMode: func() *inf.ExtensionFailureMode {
-							m := inf.FailClose
-							return &m
-						}(),
-					},
-				},
+			Selector: inf.LabelSelector{
+				MatchLabels: map[inf.LabelKey]inf.LabelValue{"app": "t"},
+			},
+			TargetPorts: []inf.Port{{Number: 8080}},
+			ExtensionRef: inf.Extension{
+				Name:       "svc",
+				PortNumber: ptr.To(inf.PortNumber(1234)),
+				FailureMode: func() inf.ExtensionFailureMode {
+					m := inf.FailClose
+					return m
+				}(),
 			},
 		},
 	}
@@ -53,7 +49,7 @@ func makePool(opts ...func(*inf.InferencePool)) *inferencePool {
 func TestNewInferencePool_DefaultAndOverridePort(t *testing.T) {
 	// Set the default grpcPort
 	p := makePool(func(pool *inf.InferencePool) {
-		pool.Spec.EndpointPickerConfig.ExtensionRef.PortNumber = nil
+		*pool.Spec.ExtensionRef.PortNumber = inf.PortNumber(grpcPort)
 	})
 
 	// We should have exactly one port (grpcPort 9002)
@@ -77,7 +73,7 @@ func TestIsFailOpen(t *testing.T) {
 	// Set FailureMode to FailOpen
 	r := makePool(func(pool *inf.InferencePool) {
 		m := inf.FailOpen
-		pool.Spec.EndpointPickerConfig.ExtensionRef.ExtensionConnection.FailureMode = &m
+		pool.Spec.ExtensionRef.FailureMode = m
 	})
 	assert.True(t, r.failOpen)
 }
@@ -118,14 +114,14 @@ func TestEqualsAndEndpoints(t *testing.T) {
 
 	// Different selector
 	c := makePool(func(pool *inf.InferencePool) {
-		pool.Spec.Selector = map[inf.LabelKey]inf.LabelValue{"app": "x"}
+		pool.Spec.Selector.MatchLabels = map[inf.LabelKey]inf.LabelValue{"app": "x"}
 	})
 	assert.False(t, a.Equals(c))
 	assert.False(t, c.Equals(a))
 
 	// Different targetPort
 	d := makePool(func(pool *inf.InferencePool) {
-		pool.Spec.TargetPortNumber = 9999
+		pool.Spec.TargetPorts[0].Number = 9999
 	})
 	assert.False(t, a.Equals(d))
 
@@ -139,7 +135,7 @@ func TestEqualsAndEndpoints(t *testing.T) {
 	// Failure mode difference
 	e := makePool(func(pool *inf.InferencePool) {
 		m := inf.FailOpen
-		pool.Spec.ExtensionRef.ExtensionConnection.FailureMode = &m
+		pool.Spec.ExtensionRef.FailureMode = m
 	})
 	assert.False(t, a.Equals(e))
 }

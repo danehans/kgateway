@@ -15,8 +15,11 @@ import (
 )
 
 var (
-	// InferencePool v1 CRD.
-	poolCrdManifest = filepath.Join(crds.AbsPathToCrd("inferencepools.yaml"))
+	// poolCrdManifest defines the manifest file containing Inference Extension CRDs.
+	// Created using command:
+	//   kubectl kustomize "https://github.com/kubernetes-sigs/gateway-api-inference-extension/config/crd/?ref=$COMMIT_SHA" \
+	//   > internal/kgateway/crds/inference-crds.yaml
+	poolCrdManifest = filepath.Join(crds.AbsPathToCrd("inference-crds.yaml"))
 	// infExtNs is the namespace to install kgateway
 	infExtNs = "inf-ext-e2e"
 )

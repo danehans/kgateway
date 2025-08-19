@@ -61,8 +61,10 @@ spec:
     name: gateway-pool-endpoint-picker
     portNumber: 9002
   selector:
-    app: gateway
-  targetPortNumber: 8080
+    matchLabels:
+      app: gateway
+  targetPorts:
+  - number: 8080
 ---
 # A dummy Pod so the InferencePool has at least one endpoint.
 apiVersion: v1

@@ -15,7 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
-	"k8s.io/utils/ptr"
 	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -362,8 +361,8 @@ func updatePoolStatus(
 	// Add back each active Gateway
 	for g := range activeGws {
 		p := updateParent(inf.ParentGatewayReference{
-			Kind:      ptr.To(inf.Kind(wellknown.GatewayKind)),
-			Namespace: ptr.To(inf.Namespace(g.Namespace)),
+			Kind:      inf.Kind(wellknown.GatewayKind),
+			Namespace: inf.Namespace(g.Namespace),
 			Name:      inf.ObjectName(g.Name),
 		})
 		upsert(&p.Conditions, buildAcceptedCondition(pool.Generation, commonCol.ControllerName))
@@ -373,7 +372,7 @@ func updatePoolStatus(
 	if irPool.hasErrors() {
 		// Ensure it exists and carries only the ResolvedRefs condition
 		p := updateParent(inf.ParentGatewayReference{
-			Kind: ptr.To(inf.Kind(defaultInfPoolStatusKind)),
+			Kind: inf.Kind(defaultInfPoolStatusKind),
 			Name: inf.ObjectName(defaultInfPoolStatusName),
 		})
 		upsert(&p.Conditions, buildResolvedRefsCondition(pool.Generation, errs))
@@ -384,7 +383,7 @@ func updatePoolStatus(
 	if !irPool.hasErrors() && len(activeGws) == 0 {
 		cleaned := pool.Status.Parents[:0]
 		for _, p := range pool.Status.Parents {
-			if !(p.GatewayRef.Kind == ptr.To(inf.Kind(defaultInfPoolStatusKind)) &&
+			if !(p.GatewayRef.Kind == inf.Kind(defaultInfPoolStatusKind) &&
 				p.GatewayRef.Name == inf.ObjectName(defaultInfPoolStatusName)) {
 				cleaned = append(cleaned, p)
 			}
@@ -425,12 +424,12 @@ func key(ref inf.ParentGatewayReference) string {
 		group = string(*ref.Group)
 	}
 	kind := wellknown.GatewayKind
-	if ref.Kind != nil {
-		kind = string(*ref.Kind)
+	if ref.Kind != inf.Kind(kind) {
+		kind = string(ref.Kind)
 	}
 	ns := ""
-	if ref.Namespace != nil {
-		ns = string(*ref.Namespace)
+	if ref.Namespace != inf.Namespace("") {
+		ns = string(ref.Namespace)
 	}
 	return fmt.Sprintf("%s/%s/%s/%s", group, kind, ns, ref.Name)
 }

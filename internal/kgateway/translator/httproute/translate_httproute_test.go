@@ -282,7 +282,7 @@ var _ = Describe("GatewayHttpRouteTranslator", func() {
 					Namespace: "bar",
 				},
 				Spec: inf.InferencePoolSpec{
-					TargetPortNumber: int32(8000),
+					TargetPorts: []inf.Port{{Number: 8000}},
 				},
 			}
 		})

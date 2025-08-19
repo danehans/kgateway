@@ -93,7 +93,7 @@ kubectl apply --kustomize "https://github.com/kubernetes-sigs/gateway-api/config
 # 7. Apply the Kubernetes Gateway API Inference Extension CRDs
 # TODO [danehans]: Replace commit hash with GIE_CRD_VERSION once upstream publishes the v1.0.0 tag.
 # https://github.com/kgateway-dev/kgateway/issues/11964
-kubectl kustomize "https://github.com/kubernetes-sigs/gateway-api-inference-extension/config/crd/?ref=2d7613c9b2bebada4c212495326272137c5846db" | kubectl apply -f -
+kubectl kustomize "https://github.com/kubernetes-sigs/gateway-api-inference-extension/config/crd/?ref=dd6834a631f8afb9e65b5a255ad4bbb8508669e5" | kubectl apply -f -
 
 # 8. Conformance test setup
 if [[ $CONFORMANCE == "true" ]]; then

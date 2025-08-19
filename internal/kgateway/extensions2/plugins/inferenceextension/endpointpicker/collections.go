@@ -85,7 +85,7 @@ func initInferencePoolCollections(
 		func(p krtcollections.LocalityPod) []string {
 			var keys []string
 			for _, pool := range poolCol.List() {
-				sel := labels.Set(convertSelector(pool.Spec.Selector))
+				sel := labels.Set(convertSelector(pool.Spec.Selector.MatchLabels))
 				if p.Namespace == pool.Namespace &&
 					labels.SelectorFromSet(sel).Matches(labels.Set(p.AugmentedLabels)) {
 					nn := fmt.Sprintf("%s/%s", pool.Namespace, pool.Name)

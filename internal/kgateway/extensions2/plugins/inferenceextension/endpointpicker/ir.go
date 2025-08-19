@@ -27,8 +27,8 @@ type inferencePool struct {
 	obj metav1.Object
 	// podSelector is a label selector to select Pods that are members of the InferencePool.
 	podSelector map[string]string
-	// targetPort is the port number that should be targeted for Pods selected by Selector.
-	targetPort int32
+	// targetPorts is a list of port numbers that should be targeted for Pods selected by Selector.
+	targetPorts []targetPort
 	// configRef is a reference to the extension configuration. A configRef is typically implemented
 	// as a Kubernetes Service resource.
 	configRef *service
@@ -49,9 +49,15 @@ type inferencePool struct {
 	failOpen bool
 }
 
+type targetPort struct {
+	// number defines a network port number of a target port.
+	number int32
+}
+
 // newInferencePool returns the internal representation of the given pool.
 func newInferencePool(pool *inf.InferencePool) *inferencePool {
-	port := servicePort{name: "grpc", portNum: (int32(grpcPort))}
+	// Start with the default port and only override if non-zero.
+	port := servicePort{name: "grpc", portNum: int32(grpcPort)}
 	if pool.Spec.ExtensionRef.PortNumber != nil {
 		port.portNum = int32(*pool.Spec.ExtensionRef.PortNumber)
 	}
@@ -69,8 +75,9 @@ func newInferencePool(pool *inf.InferencePool) *inferencePool {
 
 	return &inferencePool{
 		obj:         pool,
-		podSelector: convertSelector(pool.Spec.Selector),
-		targetPort:  int32(pool.Spec.TargetPortNumber),
+		podSelector: convertSelector(pool.Spec.Selector.MatchLabels),
+		// InferencePool v1 only supports single port
+		targetPorts: []targetPort{{number: int32(pool.Spec.TargetPorts[0].Number)}},
 		configRef:   svcIR,
 		endpoints:   []endpoint{},
 		failOpen:    isFailOpen(pool),
@@ -91,7 +98,8 @@ func (ir *inferencePool) resolvePoolEndpoints(
 	var eps []endpoint
 	for _, p := range idx.Lookup(key) {
 		if ip := p.Address(); ip != "" {
-			eps = append(eps, endpoint{address: ip, port: ir.targetPort})
+			// InferencePool v1 only supports single port
+			eps = append(eps, endpoint{address: ip, port: ir.targetPorts[0].number})
 		}
 	}
 
@@ -137,7 +145,19 @@ func (ir *inferencePool) Equals(other any) bool {
 		}
 	}
 	// Compare target port
-	if ir.targetPort != otherPool.targetPort {
+	// InferencePool v1 only supports single port
+	if len(ir.targetPorts) != 1 || len(otherPool.targetPorts) != 1 {
+		return false
+	}
+	if ir.targetPorts[0].number != otherPool.targetPorts[0].number {
+		return false
+	}
+	// Compare object metadata
+	if ir.obj.GetName() != otherPool.obj.GetName() ||
+		ir.obj.GetNamespace() != otherPool.obj.GetNamespace() ||
+		ir.obj.GetUID() != otherPool.obj.GetUID() ||
+		ir.obj.GetResourceVersion() != otherPool.obj.GetResourceVersion() ||
+		ir.obj.GetGeneration() != otherPool.obj.GetGeneration() {
 		return false
 	}
 	// Compare configRef
@@ -269,15 +289,9 @@ func versionEquals(a, b metav1.Object) bool {
 }
 
 func isFailOpen(pool *inf.InferencePool) bool {
-	if pool == nil ||
-		pool.Spec.EndpointPickerConfig.ExtensionRef == nil {
+	if pool == nil {
 		return false
 	}
 
-	if pool.Spec.EndpointPickerConfig.ExtensionRef.ExtensionConnection.FailureMode == nil ||
-		*pool.Spec.EndpointPickerConfig.ExtensionRef.ExtensionConnection.FailureMode == inf.FailClose {
-		return false
-	}
-
-	return true
+	return pool.Spec.ExtensionRef.FailureMode == inf.FailOpen
 }

@@ -119,14 +119,12 @@ var _ = Describe("InferencePool controller", func() {
 					UID:       "pool-uid",
 				},
 				Spec: inf.InferencePoolSpec{
-					Selector:         map[inf.LabelKey]inf.LabelValue{},
-					TargetPortNumber: 1234,
-					EndpointPickerConfig: inf.EndpointPickerConfig{
-						ExtensionRef: &inf.Extension{
-							ExtensionReference: inf.ExtensionReference{
-								Name: "doesnt-matter",
-							},
-						},
+					Selector: inf.LabelSelector{
+						MatchLabels: map[inf.LabelKey]inf.LabelValue{"app": "x"},
+					},
+					TargetPorts: []inf.Port{{Number: 1234}},
+					ExtensionRef: inf.Extension{
+						Name: "doesnt-matter",
 					},
 				},
 			}
@@ -155,14 +153,12 @@ var _ = Describe("InferencePool controller", func() {
 					UID:       "pool2-uid",
 				},
 				Spec: inf.InferencePoolSpec{
-					Selector:         map[inf.LabelKey]inf.LabelValue{},
-					TargetPortNumber: 1234,
-					EndpointPickerConfig: inf.EndpointPickerConfig{
-						ExtensionRef: &inf.Extension{
-							ExtensionReference: inf.ExtensionReference{
-								Name: "doesnt-matter",
-							},
-						},
+					Selector: inf.LabelSelector{
+						MatchLabels: map[inf.LabelKey]inf.LabelValue{"app": "x"},
+					},
+					TargetPorts: []inf.Port{{Number: 1234}},
+					ExtensionRef: inf.Extension{
+						Name: "doesnt-matter",
 					},
 				},
 			}
@@ -213,12 +209,12 @@ var _ = Describe("InferencePool controller", func() {
 					Namespace: defaultNamespace,
 				},
 				Spec: inf.InferencePoolSpec{
-					Selector:         map[inf.LabelKey]inf.LabelValue{},
-					TargetPortNumber: 1234,
-					EndpointPickerConfig: inf.EndpointPickerConfig{
-						ExtensionRef: &inf.Extension{
-							ExtensionReference: inf.ExtensionReference{Name: "doesnt-matter"},
-						},
+					Selector: inf.LabelSelector{
+						MatchLabels: map[inf.LabelKey]inf.LabelValue{"app": "x"},
+					},
+					TargetPorts: []inf.Port{{Number: 1234}},
+					ExtensionRef: inf.Extension{
+						Name: "doesnt-matter",
 					},
 				},
 			}

@@ -464,17 +464,15 @@ func infPool(ns string) *inf.InferencePool {
 			Namespace: ns,
 		},
 		Spec: inf.InferencePoolSpec{
-			Selector:         map[inf.LabelKey]inf.LabelValue{},
-			TargetPortNumber: int32(8080),
-			EndpointPickerConfig: inf.EndpointPickerConfig{
-				ExtensionRef: &inf.Extension{
-					ExtensionReference: inf.ExtensionReference{
-						Group:      ptr.To(inf.Group("")),
-						Kind:       ptr.To(inf.Kind(wellknown.ServiceKind)),
-						Name:       "fake",
-						PortNumber: ptr.To(inf.PortNumber(9002)),
-					},
-				},
+			Selector: inf.LabelSelector{
+				MatchLabels: map[inf.LabelKey]inf.LabelValue{},
+			},
+			TargetPorts: []inf.Port{{Number: 8080}},
+			ExtensionRef: inf.Extension{					
+				Group: ptr.To(inf.Group("")),
+				Kind:  inf.Kind(wellknown.ServiceKind),
+				Name:  "fake",
+				// Port defaults to 9002 unless overridden
 			},
 		},
 	}
@@ -549,7 +547,7 @@ func infPoolUpstreams(poolCol krt.Collection[*inf.InferencePool]) krt.Collection
 			Group:     infPoolGk.Group,
 			Namespace: pool.Namespace,
 			Name:      pool.Name,
-		}, pool.Spec.TargetPortNumber, "")
+		}, int32(pool.Spec.TargetPorts[0].Number), "")
 		backend.Obj = pool
 		backend.GvPrefix = "endpoint-picker"
 		backend.CanonicalHostname = ""
