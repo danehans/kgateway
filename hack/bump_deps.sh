@@ -48,17 +48,21 @@ fi
 echo "Current version: ${current_version:-<none>}"
 echo "Desired version (resolved): ${resolved_version}"
 
+# If already at the desired version, skip go get/mod tidy but still refresh CRDs.
+skip_get=0
 if [ -n "$current_version" ] && [ "$current_version" = "$resolved_version" ]; then
-  echo "Already at ${resolved_version} - nothing to do."
-  exit 0
+  echo "Already at ${resolved_version} - skipping dependency bump, refreshing CRDs..."
+  skip_get=1
 fi
 
-# Bump the module deps
-echo "Running: go get ${module}@${ref}"
-go get "${module}@${ref}"
+if [ $skip_get -eq 0 ]; then
+  # Bump the module deps
+  echo "Running: go get ${module}@${ref}"
+  go get "${module}@${ref}"
 
-echo "Running: go mod tidy"
-go mod tidy
+  echo "Running: go mod tidy"
+  go mod tidy
+fi
 
 # Helper: derive image tag from module version.
 # - For pseudo-versions that end with '...-YYYYMMDDHHMMSS-<sha>', produce 'vYYYYMMDD-<sha7>'
@@ -135,9 +139,45 @@ if [ "$kind" = gie ]; then
 
 elif [ "$kind" = gtw ]; then
   # Gateway API CRDs
-  # For the experimental channel, multiple CRDs live under both x-k8s.io and k8s.io groups.
-  # Use the archive to fetch *all* YAMLs in that folder and concatenate them.
-  if [ "${CONFORMANCE_CHANNEL}" = "experimental" ]; then
+  # Use release assets when ref resolves to a non-pseudo version (tags incl. -rc.*),
+  # otherwise iterate files from the repo for pseudo-versions (timestamps/SHAs).
+
+  out_all="${crd_dir}/gateway-crds.yaml"
+
+  is_pseudo=0
+  if [[ "$resolved_version" =~ ([0-9]{14})-([0-9a-f]{7,40})$ ]]; then
+    is_pseudo=1
+  fi
+
+  if [ $is_pseudo -eq 0 ]; then
+    # Try to download prebuilt install manifest from the GitHub release
+    if [ "${CONFORMANCE_CHANNEL}" = "experimental" ]; then
+      asset="experimental-install.yaml"
+    else
+      asset="standard-install.yaml"
+    fi
+    release_url="https://github.com/kubernetes-sigs/gateway-api/releases/download/${resolved_version}/${asset}"
+    echo "Attempting to fetch Gateway API release asset: ${release_url}"
+    tmp_release="$(mktemp)"
+    if curl -fLSs "${release_url}" -o "${tmp_release}"; then
+      # Extra safety: ensure non-empty before replacing
+      if [ -s "${tmp_release}" ]; then
+        mv -f "${tmp_release}" "${out_all}"
+        echo "Wrote Gateway (${CONFORMANCE_CHANNEL}) CRDs to ${out_all} from release asset"
+      else
+        echo "Release asset downloaded but empty; falling back to repo iteration for ${resolved_version}"
+        rm -f "${tmp_release}"
+        is_pseudo=1
+      fi
+    else
+      echo "Release asset not available (or download failed); falling back to repo iteration for ${resolved_version}"
+      rm -f "${tmp_release}"      is_pseudo=1
+    fi
+  fi
+
+  if [ $is_pseudo -eq 1 ]; then
+    # Fallback for pseudo-versions (or when release asset unavailable):
+    # fetch all YAMLs under config/crd/${CONFORMANCE_CHANNEL} and concatenate.
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' EXIT
 
@@ -148,24 +188,16 @@ elif [ "$kind" = gtw ]; then
     echo "Extracting archive..."
     tar -xzf "$tmpdir/gtw.tar.gz" -C "$tmpdir"
 
-    # The extracted directory name is repo-ref; glob it safely.
     srcdir="$(echo "$tmpdir"/gateway-api-*/config/crd/${CONFORMANCE_CHANNEL})"
     if [ ! -d "$srcdir" ]; then
       echo "ERROR: Could not find extracted CRD directory: $srcdir"
       exit 1
     fi
 
-    # Copy individual CRD files for transparency/debugging
-    echo "Copying individual CRDs from ${srcdir} to ${crd_dir}"
-    cp "$srcdir"/*.yaml "$crd_dir"/
-
-    # Build an all-in-one CRD file that includes *all* experimental CRDs (x-k8s.io and k8s.io)
-    out_all="${crd_dir}/gateway-crds.yaml"
     tmp_all="$(mktemp)"
     : > "$tmp_all"
-
-    echo "Building all-in-one CRD file at ${out_all}"
-    # Concatenate in a stable order
+    echo "Building all-in-one CRD file at ${out_all} from ${srcdir}"
+    # Concatenate in a stable order and include both x-k8s.io and k8s.io groups.
     for f in $(ls "$srcdir"/*.yaml | sort); do
       base="$(basename "$f")"
       echo "# Source: ${GATEWAY_CRD_BASE}/${ref}/config/crd/${CONFORMANCE_CHANNEL}/${base}" >> "$tmp_all"
@@ -179,21 +211,16 @@ elif [ "$kind" = gtw ]; then
     } END {
       i=NR
       while (i>0 && (lines[i] ~ /^---[[:space:]]*$/ || lines[i] ~ /^[[:space:]]*$/)) { i-- }
-      for (j=1; j<=i; j) print lines[j]
+      for (j=1; j<=i; j++) print lines[j]
     }' "$tmp_all" > "${out_all}"
     rm -f "$tmp_all"
-    echo "Wrote Gateway (experimental) all-in-one CRDs to $out_all"
-  else
-    # Non-experimental channels keep the previous behavior (single all-in-one plus TCPRoute)
-    url1="${GATEWAY_CRD_BASE}/${ref}/config/crd/${CONFORMANCE_CHANNEL}/gateway.networking.k8s.io_${CONFORMANCE_CHANNEL}.yaml"
-    out1="${crd_dir}/gateway-crds.yaml"
-    echo "Fetching $url1 and saving to $out1"
-    curl -fsS "$url1" -o "$out1"
+    echo "Wrote Gateway (${CONFORMANCE_CHANNEL}) all-in-one CRDs to $out_all"
+  fi
 
-    url2="${GATEWAY_CRD_BASE}/${ref}/config/crd/${CONFORMANCE_CHANNEL}/gateway.networking.k8s.io_tcproutes.yaml"
-    out2="${crd_dir}/tcproute-crd.yaml"
-    echo "Fetching $url2 and saving to $out2"
-    curl -fsS "$url2" -o "$out2"
+  # Final sanity: if ${out_all} exists but is empty, fail loudly
+  if [ -e "${out_all}" ] && [ ! -s "${out_all}" ]; then
+    echo "ERROR: ${out_all} is empty after CRD refresh. Please check the logs above."
+    exit 1
   fi
 fi
 

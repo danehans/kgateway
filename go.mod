@@ -49,13 +49,15 @@ require (
 	k8s.io/kube-openapi v0.0.0-20250814151709-d7b6acb124c3
 	k8s.io/utils v0.0.0-20250820121507-0af2bda4dd1d
 	sigs.k8s.io/controller-runtime v0.22.1
-	sigs.k8s.io/gateway-api v1.3.1-0.20250924180216-ab6b5a251c59
+	sigs.k8s.io/gateway-api v1.4.0-rc.2
 	sigs.k8s.io/gateway-api-inference-extension v0.0.0-20250930181416-bfd979d7576a
-	sigs.k8s.io/structured-merge-diff/v4 v4.7.0
 	sigs.k8s.io/yaml v1.6.0
 )
 
-require istio.io/istio v0.0.0-20251001195505-388639679b7c
+require (
+	istio.io/istio v0.0.0-20251001195505-388639679b7c
+	sigs.k8s.io/structured-merge-diff/v6 v6.3.0
+)
 
 require (
 	github.com/42wim/httpsig v1.2.2 // indirect
@@ -105,7 +107,6 @@ require (
 	gopkg.in/op/go-logging.v1 v1.0.0-20160211212156-b2cb9fa56473 // indirect
 	gotest.tools/v3 v3.4.0 // indirect
 	oras.land/oras-go/v2 v2.6.0 // indirect
-	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 )
 
 require (

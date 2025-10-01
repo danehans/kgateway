@@ -222,15 +222,15 @@ func (s *AgentGwStatusSyncer) syncTrafficPolicyStatusHandler(ctx context.Context
 	}
 
 	// Update the trafficpolicy status directly
-	var ancestors []gwv1alpha2.PolicyAncestorStatus
+	var ancestors []gwv1.PolicyAncestorStatus
 	for _, ancestor := range status.Ancestors {
-		ancestors = append(ancestors, gwv1alpha2.PolicyAncestorStatus{
+		ancestors = append(ancestors, gwv1.PolicyAncestorStatus{
 			AncestorRef:    ancestor.AncestorRef,
 			ControllerName: gwv1.GatewayController(ancestor.ControllerName),
 			Conditions:     ancestor.Conditions,
 		})
 	}
-	trafficpolicy.Status = gwv1alpha2.PolicyStatus{
+	trafficpolicy.Status = gwv1.PolicyStatus{
 		Ancestors: ancestors,
 	}
 
