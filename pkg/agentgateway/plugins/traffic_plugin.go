@@ -108,7 +108,7 @@ func TranslateTrafficPolicy(
 	var agwPolicies []AgwPolicy
 
 	isMcpTarget := false
-	var ancestors []v1alpha2.PolicyAncestorStatus
+	var ancestors []gwv1.PolicyAncestorStatus
 	for _, target := range trafficPolicy.Spec.TargetRefs {
 		var policyTarget *api.PolicyTarget
 		// Build a base ParentReference for status
@@ -180,7 +180,7 @@ func TranslateTrafficPolicy(
 					Message: fmt.Sprintf("Backend %s not found", target.Name),
 				})
 				status := v1alpha2.PolicyStatus{
-					Ancestors: []v1alpha2.PolicyAncestorStatus{
+					Ancestors: []gwv1.PolicyAncestorStatus{
 						{
 							AncestorRef:    parentRef,
 							ControllerName: v1alpha2.GatewayController(controllerName),
@@ -247,7 +247,7 @@ func TranslateTrafficPolicy(
 			}
 			// Only append valid ancestors: require non-empty controllerName and parentRef name
 			if controllerName != "" && string(parentRef.Name) != "" {
-				ancestors = append(ancestors, v1alpha2.PolicyAncestorStatus{
+				ancestors = append(ancestors, gwv1.PolicyAncestorStatus{
 					AncestorRef:    parentRef,
 					ControllerName: v1alpha2.GatewayController(controllerName),
 					Conditions:     conds,
@@ -262,7 +262,7 @@ func TranslateTrafficPolicy(
 	if len(status.Ancestors) > 15 {
 		ignored := status.Ancestors[15:]
 		status.Ancestors = status.Ancestors[:15]
-		status.Ancestors = append(status.Ancestors, v1alpha2.PolicyAncestorStatus{
+		status.Ancestors = append(status.Ancestors, gwv1.PolicyAncestorStatus{
 			AncestorRef: gwv1.ParentReference{
 				Group: ptr.To(gwv1.Group("gateway.kgateway.dev")),
 				Name:  "StatusSummary",
@@ -282,7 +282,7 @@ func TranslateTrafficPolicy(
 	// sort all parents for consistency with Equals and for Update
 	// match sorting semantics of istio/istio, see:
 	// https://github.com/istio/istio/blob/6dcaa0206bcaf20e3e3b4e45e9376f0f96365571/pilot/pkg/config/kube/gateway/conditions.go#L188-L193
-	slices.SortStableFunc(status.Ancestors, func(a, b v1alpha2.PolicyAncestorStatus) int {
+	slices.SortStableFunc(status.Ancestors, func(a, b gwv1.PolicyAncestorStatus) int {
 		return strings.Compare(reports.ParentString(a.AncestorRef), reports.ParentString(b.AncestorRef))
 	})
 
