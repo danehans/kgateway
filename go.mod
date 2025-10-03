@@ -10,7 +10,7 @@ require (
 	github.com/cncf/xds/go v0.0.0-20250501225837-2ac532fd4443
 	github.com/envoyproxy/go-control-plane v0.13.5-0.20250811224534-421509affe26
 	github.com/envoyproxy/go-control-plane/contrib v1.32.5-0.20250627145903-197b96a9c7f8
-	github.com/envoyproxy/go-control-plane/envoy v1.32.5-0.20250811224534-421509affe26
+	github.com/envoyproxy/go-control-plane/envoy v1.32.5-0.20250921184633-9a6a6e1d1741
 	github.com/envoyproxy/go-control-plane/ratelimit v0.1.1-0.20250507123352-93990c5ec02f
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
@@ -21,27 +21,26 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/mitchellh/hashstructure v1.0.0
-	github.com/onsi/ginkgo/v2 v2.24.0
-	github.com/onsi/gomega v1.38.0
-	github.com/prometheus/client_golang v1.23.0
+	github.com/onsi/ginkgo/v2 v2.25.3
+	github.com/onsi/gomega v1.38.2
+	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
-	github.com/prometheus/common v0.65.0
+	github.com/prometheus/common v0.66.1
 	github.com/solo-io/envoy-gloo/go v0.0.0-20250924144543-9d47b99b2130
 	github.com/solo-io/go-list-licenses v0.1.4
 	github.com/solo-io/go-utils v0.27.3
 	github.com/spf13/afero v1.14.0
 	github.com/spf13/cobra v1.9.1
-	github.com/stretchr/testify v1.11.0
+	github.com/stretchr/testify v1.11.1
 	go.opencensus.io v0.24.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6
-	golang.org/x/net v0.43.0
+	golang.org/x/net v0.44.0
 	google.golang.org/grpc v1.75.1
-	google.golang.org/protobuf v1.36.8
+	google.golang.org/protobuf v1.36.9
 	helm.sh/helm/v3 v3.18.6
-	istio.io/api v1.26.0-alpha.0.0.20250908200844-f7a34ed800ee
-	istio.io/client-go v1.26.0-alpha.0.0.20250908201345-99e026bfe54f
-	istio.io/istio v0.0.0-20250910161727-ec841334dbad
+	istio.io/api v1.26.0-alpha.0.0.20251002142010-859b66f07fad
+	istio.io/client-go v1.26.0-alpha.0.0.20251002142408-752760d8f171
 	k8s.io/api v0.34.1
 	k8s.io/apiextensions-apiserver v0.34.1
 	k8s.io/apimachinery v0.34.1
@@ -51,12 +50,14 @@ require (
 	k8s.io/utils v0.0.0-20250820121507-0af2bda4dd1d
 	sigs.k8s.io/controller-runtime v0.22.1
 	sigs.k8s.io/gateway-api v1.4.0-rc.2
-	sigs.k8s.io/gateway-api-inference-extension v1.0.1
-	sigs.k8s.io/structured-merge-diff/v4 v4.7.0 // indirect
+	sigs.k8s.io/gateway-api-inference-extension v0.0.0-20250930181416-bfd979d7576a
 	sigs.k8s.io/yaml v1.6.0
 )
 
-require sigs.k8s.io/structured-merge-diff/v6 v6.3.0
+require (
+	istio.io/istio v0.0.0-20251002173106-f28f563f790c
+	sigs.k8s.io/structured-merge-diff/v6 v6.3.0
+)
 
 require (
 	github.com/42wim/httpsig v1.2.2 // indirect
@@ -100,6 +101,7 @@ require (
 	go.augendre.info/fatcontext v0.8.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	golang.org/x/telemetry v0.0.0-20250908211612-aef8a434d053 // indirect
 	golang.org/x/tools/go/packages/packagestest v0.1.1-deprecated // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/op/go-logging.v1 v1.0.0-20160211212156-b2cb9fa56473 // indirect
@@ -582,16 +584,16 @@ require (
 	go.uber.org/automaxprocs v1.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	gocloud.dev v0.42.0 // indirect
-	golang.org/x/crypto v0.41.0 // indirect
+	golang.org/x/crypto v0.42.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20250210185358-939b2ce775ac // indirect
-	golang.org/x/mod v0.27.0 // indirect
+	golang.org/x/mod v0.28.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
-	golang.org/x/term v0.34.0 // indirect
-	golang.org/x/text v0.28.0 // indirect
+	golang.org/x/sync v0.17.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
+	golang.org/x/term v0.35.0 // indirect
+	golang.org/x/text v0.29.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	golang.org/x/tools v0.36.0 // indirect
+	golang.org/x/tools v0.37.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	gomodules.xyz/jsonpatch/v2 v2.5.0 // indirect
 	google.golang.org/api v0.235.0 // indirect
