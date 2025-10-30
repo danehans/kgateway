@@ -627,7 +627,8 @@ func buildAgwDestination(
 				Type:    gwv1.RouteConditionAccepted,
 				Status:  metav1.ConditionFalse,
 				Reason:  gwv1.RouteReasonUnsupportedValue,
-				Message: "service name invalid; the name of the Service must be used, not the hostname."}
+				Message: "service name invalid; the name of the Service must be used, not the hostname.",
+			}
 		}
 		hostname = kubeutils.GetInferenceServiceHostname(string(to.Name), namespace)
 		key := namespace + "/" + string(to.Name)
@@ -638,7 +639,8 @@ func buildAgwDestination(
 				Type:    gwv1.RouteConditionResolvedRefs,
 				Status:  metav1.ConditionFalse,
 				Reason:  gwv1.RouteReasonBackendNotFound,
-				Message: fmt.Sprintf("backendRef(%s) not found", hostname)}
+				Message: fmt.Sprintf("backendRef %s  not found", key),
+			}
 		} else {
 			rb.Backend = &api.BackendReference{
 				Kind: &api.BackendReference_Service{
@@ -655,7 +657,8 @@ func buildAgwDestination(
 				Type:    gwv1.RouteConditionAccepted,
 				Status:  metav1.ConditionFalse,
 				Reason:  gwv1.RouteReasonUnsupportedValue,
-				Message: "service name invalid; the name of the Service must be used, not the hostname."}
+				Message: "service name invalid; the name of the Service must be used, not the hostname.",
+			}
 		}
 		hostname = kubeutils.GetServiceHostname(string(to.Name), namespace)
 		key := namespace + "/" + string(to.Name)
@@ -665,7 +668,8 @@ func buildAgwDestination(
 				Type:    gwv1.RouteConditionResolvedRefs,
 				Status:  metav1.ConditionFalse,
 				Reason:  gwv1.RouteReasonBackendNotFound,
-				Message: fmt.Sprintf("backend(%s) not found", hostname)}
+				Message: fmt.Sprintf("backend(%s) not found", hostname),
+			}
 		}
 		// TODO: All kubernetes service types currently require a Port, so we do this for everything; consider making this per-type if we have future types
 		// that do not require port.
@@ -675,7 +679,8 @@ func buildAgwDestination(
 				Type:    gwv1.RouteConditionAccepted,
 				Status:  metav1.ConditionFalse,
 				Reason:  gwv1.RouteReasonUnsupportedValue,
-				Message: "port is required in backendRef"}
+				Message: "port is required in backendRef",
+			}
 		}
 		rb.Backend = &api.BackendReference{
 			Kind: &api.BackendReference_Service{

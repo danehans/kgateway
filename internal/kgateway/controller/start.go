@@ -18,12 +18,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/agentgatewaysyncer"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/extensions2"
-	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/extensions2/plugins/inferenceextension/endpointpicker"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/extensions2/plugins/waypoint"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/extensions2/registry"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/krtcollections"
@@ -126,13 +124,9 @@ func NewControllerBuilder(ctx context.Context, cfg StartConfig) (*ControllerBuil
 	var gatedPlugins []sdk.Plugin
 	// Extend the scheme and add the EPP plugin if the inference extension is enabled and the InferencePool CRD exists.
 	if cfg.SetupOpts.GlobalSettings.EnableInferExt {
-		exists, err := kgtwschemes.AddInferExtV1Scheme(cfg.RestConfig, cfg.Manager.GetScheme())
-		switch {
-		case err != nil:
+		_, err := kgtwschemes.AddInferExtV1Scheme(cfg.RestConfig, cfg.Manager.GetScheme())
+		if err != nil {
 			return nil, err
-		case exists:
-			setupLog.Info("adding the endpoint-picker inference extension")
-			gatedPlugins = append(gatedPlugins, endpointpicker.NewPlugin(ctx, cfg.CommonCollections))
 		}
 	}
 	// Add the waypoint plugin if enabled
@@ -349,28 +343,6 @@ func (c *ControllerBuilder) Build(ctx context.Context) (*agentgatewaysyncer.Sync
 	); err != nil {
 		setupLog.Error(err, "unable to create gateway controller")
 		return nil, err
-	}
-
-	setupLog.Info("creating inferencepool controller")
-	// Create the InferencePool controller if the inference extension feature is enabled and the API group is registered.
-	if globalSettings.EnableInferExt && c.mgr.GetScheme().IsGroupRegistered(inf.GroupVersion.Group) {
-		poolCfg := &InferencePoolConfig{
-			Mgr: c.mgr,
-			// TODO(danehans): read this from globalSettings
-			ControllerName: c.cfg.ControllerName,
-		}
-		// Enable the inference extension deployer if set.
-		if globalSettings.InferExtAutoProvision {
-			setupLog.Info("inference extension auto-provisioning is deprecated in v2.1 and will be removed in v2.2.")
-			poolCfg.InferenceExt = new(deployer.InferenceExtInfo)
-		}
-		if !globalSettings.EnableAgentgateway {
-			setupLog.Info("using inference extension without agentgateway is deprecated in v2.1 and will not be supported in v2.2.")
-		}
-		if err := NewBaseInferencePoolController(ctx, poolCfg, &gwCfg, c.cfg.HelmValuesGeneratorOverride, c.cfg.ExtraGatewayParameters); err != nil {
-			setupLog.Error(err, "unable to create inferencepool controller")
-			return nil, err
-		}
 	}
 
 	// TODO (dmitri-d) don't think c.ready field is used anywhere and can be removed

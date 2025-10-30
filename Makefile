@@ -726,7 +726,7 @@ GIE_CONFORMANCE_REPORT_ARGS ?= \
 
 # The args to pass into the Gateway API Inference Extension conformance test suite.
 GIE_CONFORMANCE_ARGS := \
-    -gateway-class=$(CONFORMANCE_GATEWAY_CLASS) \
+    -gateway-class=$(AGW_CONFORMANCE_GATEWAY_CLASS) \
     $(GIE_CONFORMANCE_REPORT_ARGS)
 
 INFERENCE_CONFORMANCE_DIR := $(shell go list -m -f '{{.Dir}}' sigs.k8s.io/gateway-api-inference-extension)/conformance
