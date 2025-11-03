@@ -712,6 +712,25 @@ conformance-%: $(TEST_ASSET_DIR)/conformance/conformance_test.go ## Run only the
 	-run-test=$*
 
 #----------------------------------------------------------------------------------
+# Targets for running Agent Gateway conformance tests
+#----------------------------------------------------------------------------------
+
+# Agent Gateway conformance test configuration
+AGW_CONFORMANCE_SUPPORTED_PROFILES ?= -conformance-profiles=GATEWAY-HTTP,GATEWAY-GRPC,GATEWAY-TLS
+AGW_CONFORMANCE_GATEWAY_CLASS ?= agentgateway
+AGW_CONFORMANCE_REPORT_ARGS ?= -report-output=$(TEST_ASSET_DIR)/conformance/agw-$(VERSION)-report.yaml -organization=kgateway-dev -project=kgateway -version=$(VERSION) -url=github.com/kgateway-dev/kgateway -contact=github.com/kgateway-dev/kgateway/issues/new/choose
+AGW_CONFORMANCE_ARGS := -gateway-class=$(AGW_CONFORMANCE_GATEWAY_CLASS) $(AGW_CONFORMANCE_SUPPORTED_PROFILES) $(AGW_CONFORMANCE_REPORT_ARGS)
+
+.PHONY: agw-conformance ## Run the agent gateway conformance test suite
+agw-conformance: $(TEST_ASSET_DIR)/conformance/conformance_test.go
+	CONFORMANCE_GATEWAY_CLASS=$(AGW_CONFORMANCE_GATEWAY_CLASS) go test -mod=mod -ldflags='$(LDFLAGS)' -tags conformance -test.v $(TEST_ASSET_DIR)/conformance/... -args $(AGW_CONFORMANCE_ARGS)
+
+# Run only the specified agent gateway conformance test
+agw-conformance-%: $(TEST_ASSET_DIR)/conformance/conformance_test.go
+	CONFORMANCE_GATEWAY_CLASS=$(AGW_CONFORMANCE_GATEWAY_CLASS) go test -mod=mod -ldflags='$(LDFLAGS)' -tags conformance -test.v $(TEST_ASSET_DIR)/conformance/... -args $(AGW_CONFORMANCE_ARGS) \
+	-run-test=$*
+
+#----------------------------------------------------------------------------------
 # Targets for running Gateway API Inference Extension conformance tests
 #----------------------------------------------------------------------------------
 
@@ -753,25 +772,6 @@ gie-conformance-%: gie-crds ## Run only the specified Gateway API Inference Exte
 .PHONY: all-conformance
 all-conformance: conformance gie-conformance agw-conformance ## Run all conformance test suites
 	@echo "All conformance suites have completed."
-
-#----------------------------------------------------------------------------------
-# Targets for running Agent Gateway conformance tests
-#----------------------------------------------------------------------------------
-
-# Agent Gateway conformance test configuration
-AGW_CONFORMANCE_SUPPORTED_PROFILES ?= -conformance-profiles=GATEWAY-HTTP,GATEWAY-GRPC,GATEWAY-TLS
-AGW_CONFORMANCE_GATEWAY_CLASS ?= agentgateway
-AGW_CONFORMANCE_REPORT_ARGS ?= -report-output=$(TEST_ASSET_DIR)/conformance/agw-$(VERSION)-report.yaml -organization=kgateway-dev -project=kgateway -version=$(VERSION) -url=github.com/kgateway-dev/kgateway -contact=github.com/kgateway-dev/kgateway/issues/new/choose
-AGW_CONFORMANCE_ARGS := -gateway-class=$(AGW_CONFORMANCE_GATEWAY_CLASS) $(AGW_CONFORMANCE_SUPPORTED_PROFILES) $(AGW_CONFORMANCE_REPORT_ARGS)
-
-.PHONY: agw-conformance ## Run the agent gateway conformance test suite
-agw-conformance: $(TEST_ASSET_DIR)/conformance/conformance_test.go
-	CONFORMANCE_GATEWAY_CLASS=$(AGW_CONFORMANCE_GATEWAY_CLASS) go test -mod=mod -ldflags='$(LDFLAGS)' -tags conformance -test.v $(TEST_ASSET_DIR)/conformance/... -args $(AGW_CONFORMANCE_ARGS)
-
-# Run only the specified agent gateway conformance test
-agw-conformance-%: $(TEST_ASSET_DIR)/conformance/conformance_test.go
-	CONFORMANCE_GATEWAY_CLASS=$(AGW_CONFORMANCE_GATEWAY_CLASS) go test -mod=mod -ldflags='$(LDFLAGS)' -tags conformance -test.v $(TEST_ASSET_DIR)/conformance/... -args $(AGW_CONFORMANCE_ARGS) \
-	-run-test=$*
 
 #----------------------------------------------------------------------------------
 # Dependency Bumping
