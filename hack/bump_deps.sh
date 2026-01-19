@@ -140,6 +140,48 @@ if [ "$kind" = gie ]; then
   fi
 fi
 
+update_make_var_line() {
+  local file="$1"
+  local var="$2"
+  local val="$3"
+
+  if [ ! -f "$file" ]; then
+    echo "WARN: $file not found, skipping"
+    return 0
+  fi
+
+  echo "Setting ${var} to '${val}' in ${file}"
+
+  if grep -Eq "^[[:space:]]*${var}[[:space:]]*([?:]?=)" "$file"; then
+    sed -i.bak -E \
+      -e "s|^([[:space:]]*${var}[[:space:]]*[?:]?=)[[:space:]]*.*$|\1 ${val}|g" \
+      "$file"
+    rm -f "$file.bak"
+  else
+    printf '\n%s ?= %s\n' "$var" "$val" >> "$file"
+  fi
+}
+
+update_nightly_gateway_api_matrix_versions() {
+  local file="$1"
+  local old="$2"
+  local new="$3"
+
+  if [ ! -f "$file" ]; then
+    echo "WARN: $file not found, skipping"
+    return 0
+  fi
+
+  # Escape dots for ERE (good enough for vX.Y.Z / -rc.N)
+  local old_esc="${old//./\\.}"
+
+  echo "Updating nightly-tests gateway-api matrix: ${old} -> ${new} in ${file}"
+  sed -i.bak -E \
+    -e "s|(version:[[:space:]]*')${old_esc}(')|\1${new}\2|g" \
+    "$file"
+  rm -f "$file.bak"
+}
+
 # Fetch and store the CRDs
 crd_dir="$root/pkg/kgateway/crds"
 mkdir -p "$crd_dir"
@@ -189,12 +231,34 @@ elif [ "$kind" = gtw ]; then
   # Gateway API CRDs
   # Use release assets when ref resolves to a non-pseudo version (tags incl. -rc.*),
   # otherwise iterate files from the repo for pseudo-versions (timestamps/SHAs).
-
   out_all="${crd_dir}/gateway-crds.yaml"
 
   is_pseudo=0
   if [[ "$resolved_version" =~ ([0-9]{14})-([0-9a-f]{7,40})$ ]]; then
     is_pseudo=1
+  fi
+
+  # Read current pinned conformance version from the Makefile (so we only replace “latest”)
+  current_conf="$(
+    sed -nE 's/^[[:space:]]*CONFORMANCE_VERSION[[:space:]]*[?:]?=[[:space:]]*([^[:space:]#]+).*$/\1/p' \
+      "$root/Makefile" | head -n1
+  )"
+
+  if [ $is_pseudo -eq 0 ]; then
+    # Update Makefile pin
+    update_make_var_line "$root/Makefile" "CONFORMANCE_VERSION" "$resolved_version"
+
+    # Update nightly-tests “latest” entries (the ones matching current_conf)
+    if [ -n "${current_conf:-}" ]; then
+      update_nightly_gateway_api_matrix_versions \
+        "$root/.github/workflows/nightly-tests.yaml" \
+        "$current_conf" \
+        "$resolved_version"
+    else
+      echo "WARN: Could not parse current CONFORMANCE_VERSION from Makefile; skipping workflow update"
+    fi
+  else
+    echo "WARN: Gateway API resolved to pseudo-version (${resolved_version}); leaving CONFORMANCE_VERSION and nightly matrix unchanged"
   fi
 
   if [ $is_pseudo -eq 0 ]; then
@@ -213,13 +277,14 @@ elif [ "$kind" = gtw ]; then
         mv -f "${tmp_release}" "${out_all}"
         echo "Wrote Gateway (${CONFORMANCE_CHANNEL}) CRDs to ${out_all} from release asset"
       else
-        echo "Release asset downloaded but empty; falling back to repo iteration for ${resolved_version}"
+        echo "Release asset downloaded but empty; falling back to repo iteration for ${ref}"
         rm -f "${tmp_release}"
         is_pseudo=1
       fi
     else
-      echo "Release asset not available (or download failed); falling back to repo iteration for ${resolved_version}"
-      rm -f "${tmp_release}"      is_pseudo=1
+      echo "Release asset not available (or download failed); falling back to repo iteration for ${ref}"
+      rm -f "${tmp_release}"
+      is_pseudo=1
     fi
   fi
 
