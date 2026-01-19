@@ -735,18 +735,36 @@ kind-create: ## Create a KinD cluster
 	$(KIND) get clusters | grep $(CLUSTER_NAME) || $(KIND) create cluster --name $(CLUSTER_NAME) --image kindest/node:$(CLUSTER_NODE_VERSION)
 
 CONFORMANCE_CHANNEL ?= experimental
+# Git ref (tag/SHA/branch) used to install Gateway API CRDs.
 CONFORMANCE_VERSION ?= v1.4.1
 .PHONY: gw-api-crds
 gw-api-crds: ## Install the Gateway API CRDs. HACK: Use SSA to avoid the issue with the CRD annotations being too long.
-	kubectl apply --server-side -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/$(CONFORMANCE_VERSION)/$(CONFORMANCE_CHANNEL)-install.yaml"
+	@set -euo pipefail; \
+	tmpdir="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmpdir"' EXIT; \
+	curl -fsSL "https://codeload.github.com/kubernetes-sigs/gateway-api/tar.gz/$(CONFORMANCE_VERSION)" -o "$$tmpdir/gateway-api.tgz"; \
+	tar -xzf "$$tmpdir/gateway-api.tgz" -C "$$tmpdir"; \
+	if [ "$(CONFORMANCE_CHANNEL)" = "standard" ]; then \
+	  crddir="$$(echo "$$tmpdir"/gateway-api-*/config/crd)"; \
+	else \
+	  crddir="$$(echo "$$tmpdir"/gateway-api-*/config/crd/$(CONFORMANCE_CHANNEL))"; \
+	fi; \
+	kubectl kustomize "$$crddir" | kubectl apply --server-side -f -
 
 # The version of the k8s gateway api inference extension CRDs to install.
 # Managed by `make bump-gie`.
+# Git ref (tag/SHA/branch) used to install GIE CRDs.
 GIE_CRD_VERSION ?= v1.1.0
 
 .PHONY: gie-crds
 gie-crds: ## Install the Gateway API Inference Extension CRDs
-	kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/$(GIE_CRD_VERSION)/manifests.yaml"
+	@set -euo pipefail; \
+	tmpdir="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmpdir"' EXIT; \
+	curl -fsSL "https://codeload.github.com/kubernetes-sigs/gateway-api-inference-extension/tar.gz/$(GIE_CRD_VERSION)" -o "$$tmpdir/gie.tgz"; \
+	tar -xzf "$$tmpdir/gie.tgz" -C "$$tmpdir"; \
+	crddir="$$(echo "$$tmpdir"/gateway-api-inference-extension-*/config/crd)"; \
+	kubectl kustomize "$$crddir" | kubectl apply -f -
 
 .PHONY: kind-metallb
 metallb: ## Install the MetalLB load balancer
@@ -942,18 +960,20 @@ all-conformance: conformance gie-conformance agw-conformance ## Run all conforma
 
 .PHONY: bump-gtw
 bump-gtw: ## Bump Gateway API deps to $DEP_REF (or $DEP_VERSION). Example: make bump-gtw DEP_REF=198e6cab...
-	@if [ -z "$${DEP_REF:-}" ] && [ -n "$${DEP_VERSION:-}" ]; then DEP_REF="$$DEP_VERSION"; fi; \
+	@set -euo pipefail; \
+	if [ -z "$${DEP_REF:-}" ] && [ -n "$${DEP_VERSION:-}" ]; then DEP_REF="$$DEP_VERSION"; fi; \
 	if [ -z "$${DEP_REF:-}" ]; then \
 	  echo "DEP_REF is not set (or DEP_VERSION). e.g. make bump-gtw DEP_REF=v1.3.0 or DEP_REF=198e6cab6774..."; \
 	  exit 2; \
 	fi; \
 	echo "Bumping Gateway API to $${DEP_REF}"; \
-	hack/bump_deps.sh gtw "$$DEP_REF"; \
+	CONFORMANCE_CHANNEL=$(CONFORMANCE_CHANNEL) hack/bump_deps.sh gtw "$$DEP_REF"; \
 	echo "Updating licensing..."; \
 	$(MAKE) generate-licenses
 
 .PHONY: bump-gie
 bump-gie: ## Bump Gateway API Inference Extension to $DEP_REF (or $DEP_VERSION). Example: make bump-gie DEP_REF=198e6cab...
+	@set -euo pipefail; \
 	@if [ -z "$${DEP_REF:-}" ] && [ -n "$${DEP_VERSION:-}" ]; then DEP_REF="$$DEP_VERSION"; fi; \
 	if [ -z "$${DEP_REF:-}" ]; then \
 	  echo "DEP_REF is not set (or DEP_VERSION). e.g. make bump-gie DEP_REF=v0.5.1 or DEP_REF=198e6cab6774..."; \

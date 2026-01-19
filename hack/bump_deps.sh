@@ -11,7 +11,7 @@ EPP_YAML_PATH="test/e2e/features/inferenceextension/testdata/epp.yaml"
 GIE_CRD_BASE="https://raw.githubusercontent.com/kubernetes-sigs/gateway-api-inference-extension"
 GATEWAY_CRD_BASE="https://raw.githubusercontent.com/kubernetes-sigs/gateway-api"
 
-# The Gateway API channel (experimental or stable)
+# The Gateway API channel (experimental or standard)
 CONFORMANCE_CHANNEL="${CONFORMANCE_CHANNEL:-experimental}"
 
 if [ $# -ne 2 ]; then
@@ -192,39 +192,39 @@ if [ "$kind" = gie ]; then
   tmpdir="$(mktemp -d)"
   trap 'rm -rf "$tmpdir"' EXIT
 
-  # Known CRDs/sources
-  declare -a SOURCES=(
-    "${GIE_CRD_BASE}/${ref}/config/crd/bases/inference.networking.k8s.io_inferencepools.yaml"
-    "${GIE_CRD_BASE}/${ref}/config/crd/bases/inference.networking.x-k8s.io_inferenceobjectives.yaml"
-  )
+  archive_url="https://codeload.github.com/kubernetes-sigs/gateway-api-inference-extension/tar.gz/${ref}"
+  echo "Downloading GIE archive: $archive_url"
+  curl -fsSL "$archive_url" -o "$tmpdir/gie.tar.gz"
+  echo "Extracting archive..."
+  tar -xzf "$tmpdir/gie.tar.gz" -C "$tmpdir"
 
-  tmpout="$(mktemp)"
-  : > "$tmpout"
+  # Match Makefile gie-crds behavior: kustomize config/crd  if [ ! -d "$srcdir" ]; then
+  srcdir="$(echo "$tmpdir"/gateway-api-inference-extension-*/config/crd)"
+  if [ ! -d "$srcdir" ]; then
+    echo "ERROR: Could not find extracted CRD directory: $srcdir"
+    exit 1
+  fi
 
-  for url in "${SOURCES[@]}"; do
-    fname="$tmpdir/$(basename "$url")"
-    echo "Fetching $url"
-    curl -fsS "$url" -o "$fname"
-    {
-      echo "# Source: $url"
-      cat "$fname"
-      echo "---"
-    } >> "$tmpout"
-  done
-
-  # Remove the trailing '---' and any trailing blank lines
-  # shellcheck disable=SC2016
-  awk '{
-    lines[NR]=$0
-  } END {
-    # drop trailing separators/blank lines
-    i=NR
-    while (i>0 && (lines[i] ~ /^---[[:space:]]*$/ || lines[i] ~ /^[[:space:]]*$/)) { i-- }
-    for (j=1; j<=i; j++) print lines[j]
-  }' "$tmpout" > "${tmpout}.trim"
-
-  mv -f "${tmpout}.trim" "$outfile"
-  rm -f "$tmpout"
+  echo "Rendering GIE CRDs via kustomize from ${srcdir}"
+  tmp_render="$(mktemp)"
+  if ! kubectl kustomize "$srcdir" > "$tmp_render"; then
+    echo "ERROR: kubectl kustomize failed for ${srcdir}"
+    echo "       Ref: ${ref}"
+    rm -f "$tmp_render"
+    exit 1
+  fi
+  if [ ! -s "$tmp_render" ]; then
+    echo "ERROR: kubectl kustomize produced empty output for ${srcdir}"
+    echo "       Ref: ${ref}"
+    rm -f "$tmp_render"
+    exit 1
+  fi
+  {
+    echo "# Generated from: ${archive_url}"
+    echo "# Ref: ${ref}"
+    cat "$tmp_render"
+  } > "$outfile"
+  rm -f "$tmp_render"
   echo "Wrote GIE all-in-one CRDs to $outfile"
 
 elif [ "$kind" = gtw ]; then
@@ -233,9 +233,11 @@ elif [ "$kind" = gtw ]; then
   # otherwise iterate files from the repo for pseudo-versions (timestamps/SHAs).
   out_all="${crd_dir}/gateway-crds.yaml"
 
-  is_pseudo=0
-  if [[ "$resolved_version" =~ ([0-9]{14})-([0-9a-f]{7,40})$ ]]; then
-    is_pseudo=1
+  # Treat CONFORMANCE_VERSION as a git ref for installs (tag or SHA).
+  # If ref is a tag, pin to resolved_version; if ref is a SHA/branch, pin to ref.
+  ref_is_tag=0
+  if [[ "$ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.+-]+)?$ ]]; then
+    ref_is_tag=1
   fi
 
   # Read current pinned conformance version from the Makefile (so we only replace “latest”)
@@ -244,91 +246,52 @@ elif [ "$kind" = gtw ]; then
       "$root/Makefile" | head -n1
   )"
 
-  if [ $is_pseudo -eq 0 ]; then
-    # Update Makefile pin
-    update_make_var_line "$root/Makefile" "CONFORMANCE_VERSION" "$resolved_version"
+  # Always pin CONFORMANCE_VERSION to the git ref the user requested (tag or SHA).
+  # This keeps installed CRDs (Makefile) consistent with the dependency bump (go get @ref).
+  update_make_var_line "$root/Makefile" "CONFORMANCE_VERSION" "$ref"
 
-    # Update nightly-tests “latest” entries (the ones matching current_conf)
-    if [ -n "${current_conf:-}" ]; then
-      update_nightly_gateway_api_matrix_versions \
-        "$root/.github/workflows/nightly-tests.yaml" \
-        "$current_conf" \
-        "$resolved_version"
-    else
-      echo "WARN: Could not parse current CONFORMANCE_VERSION from Makefile; skipping workflow update"
-    fi
-  else
-    echo "WARN: Gateway API resolved to pseudo-version (${resolved_version}); leaving CONFORMANCE_VERSION and nightly matrix unchanged"
+  # Only update nightly-tests matrix when ref is a tag (matrix should be semver-ish, not a SHA).
+  if [ $ref_is_tag -eq 1 ] && [ -n "${current_conf:-}" ]; then
+    update_nightly_gateway_api_matrix_versions \
+      "$root/.github/workflows/nightly-tests.yaml" \
+      "$current_conf" \
+      "$ref"
   fi
 
-  if [ $is_pseudo -eq 0 ]; then
-    # Try to download prebuilt install manifest from the GitHub release
-    if [ "${CONFORMANCE_CHANNEL}" = "experimental" ]; then
-      asset="experimental-install.yaml"
-    else
-      asset="standard-install.yaml"
-    fi
-    release_url="https://github.com/kubernetes-sigs/gateway-api/releases/download/${resolved_version}/${asset}"
-    echo "Attempting to fetch Gateway API release asset: ${release_url}"
-    tmp_release="$(mktemp)"
-    if curl -fLSs "${release_url}" -o "${tmp_release}"; then
-      # Extra safety: ensure non-empty before replacing
-      if [ -s "${tmp_release}" ]; then
-        mv -f "${tmp_release}" "${out_all}"
-        echo "Wrote Gateway (${CONFORMANCE_CHANNEL}) CRDs to ${out_all} from release asset"
-      else
-        echo "Release asset downloaded but empty; falling back to repo iteration for ${ref}"
-        rm -f "${tmp_release}"
-        is_pseudo=1
-      fi
-    else
-      echo "Release asset not available (or download failed); falling back to repo iteration for ${ref}"
-      rm -f "${tmp_release}"
-      is_pseudo=1
-    fi
+  # Always vendor CRDs from the repo tree for consistency (tags and SHAs).
+  tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$tmpdir"' EXIT
+
+  archive_url="https://codeload.github.com/kubernetes-sigs/gateway-api/tar.gz/${ref}"
+  echo "Downloading Gateway API archive: $archive_url"
+  curl -fsSL "$archive_url" -o "$tmpdir/gtw.tar.gz"
+  echo "Extracting archive..."
+  tar -xzf "$tmpdir/gtw.tar.gz" -C "$tmpdir"
+
+  echo "Rendering Gateway API CRDs via kustomize from ${srcdir}"
+  tmp_render="$(mktemp)"
+  if ! kubectl kustomize "$srcdir" > "$tmp_render"; then
+    echo "ERROR: kubectl kustomize failed for ${srcdir}"
+    echo "       Channel: ${CONFORMANCE_CHANNEL}"
+    echo "       Ref: ${ref}"
+    rm -f "$tmp_render"
+    exit 1
   fi
-
-  if [ $is_pseudo -eq 1 ]; then
-    # Fallback for pseudo-versions (or when release asset unavailable):
-    # fetch all YAMLs under config/crd/${CONFORMANCE_CHANNEL} and concatenate.
-    tmpdir="$(mktemp -d)"
-    trap 'rm -rf "$tmpdir"' EXIT
-
-    archive_url="https://codeload.github.com/kubernetes-sigs/gateway-api/tar.gz/${ref}"
-    echo "Downloading Gateway API archive: $archive_url"
-    curl -fsSL "$archive_url" -o "$tmpdir/gtw.tar.gz"
-
-    echo "Extracting archive..."
-    tar -xzf "$tmpdir/gtw.tar.gz" -C "$tmpdir"
-
-    srcdir="$(echo "$tmpdir"/gateway-api-*/config/crd/${CONFORMANCE_CHANNEL})"
-    if [ ! -d "$srcdir" ]; then
-      echo "ERROR: Could not find extracted CRD directory: $srcdir"
-      exit 1
-    fi
-
-    tmp_all="$(mktemp)"
-    : > "$tmp_all"
-    echo "Building all-in-one CRD file at ${out_all} from ${srcdir}"
-    # Concatenate in a stable order and include both x-k8s.io and k8s.io groups.
-    for f in $(ls "$srcdir"/*.yaml | sort); do
-      base="$(basename "$f")"
-      echo "# Source: ${GATEWAY_CRD_BASE}/${ref}/config/crd/${CONFORMANCE_CHANNEL}/${base}" >> "$tmp_all"
-      cat "$f" >> "$tmp_all"
-      echo "---" >> "$tmp_all"
-    done
-
-    # Trim trailing separators/blank lines
-    awk '{
-      lines[NR]=$0
-    } END {
-      i=NR
-      while (i>0 && (lines[i] ~ /^---[[:space:]]*$/ || lines[i] ~ /^[[:space:]]*$/)) { i-- }
-      for (j=1; j<=i; j++) print lines[j]
-    }' "$tmp_all" > "${out_all}"
-    rm -f "$tmp_all"
-    echo "Wrote Gateway (${CONFORMANCE_CHANNEL}) all-in-one CRDs to $out_all"
+  if [ ! -s "$tmp_render" ]; then
+    echo "ERROR: kubectl kustomize produced empty output for ${srcdir}"
+    echo "       Channel: ${CONFORMANCE_CHANNEL}"
+    echo "       Ref: ${ref}"
+    rm -f "$tmp_render"
+    exit 1
   fi
+  {
+    echo "# Generated from: ${archive_url}"
+    echo "# Channel: ${CONFORMANCE_CHANNEL}"
+    echo "# Ref: ${ref}"
+    cat "$tmp_render"
+  } > "${out_all}"
+  rm -f "$tmp_render"
+  echo "Wrote Gateway (${CONFORMANCE_CHANNEL}) all-in-one CRDs to $out_all"
 
   # Final sanity: if ${out_all} exists but is empty, fail loudly
   if [ -e "${out_all}" ] && [ ! -s "${out_all}" ]; then
