@@ -80,9 +80,9 @@ func (s *istioAutoMtlsTestingSuite) SetupSuite() {
 
 	// We include tests with manual setup here because the cleanup is still automated via AfterTest
 	s.manifests = map[string][]string{
-		"TestMtlsStrictPeerAuth":     {strictPeerAuthManifest, k8sRoutingSvcManifest},
-		"TestMtlsPermissivePeerAuth": {permissivePeerAuthManifest, k8sRoutingSvcManifest},
-		"TestMtlsDisablePeerAuth":    {disablePeerAuthManifest, k8sRoutingBackendManifest},
+		"TestMtlsStrictPeerAuth":     {defaults.CurlPodManifest, strictPeerAuthManifest, k8sRoutingSvcManifest},
+		"TestMtlsPermissivePeerAuth": {defaults.CurlPodManifest, permissivePeerAuthManifest, k8sRoutingSvcManifest},
+		"TestMtlsDisablePeerAuth":    {defaults.CurlPodManifest, disablePeerAuthManifest, k8sRoutingBackendManifest},
 	}
 }
 
