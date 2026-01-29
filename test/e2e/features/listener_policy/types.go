@@ -10,10 +10,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 )
 
 var (
-	setupManifest                           = filepath.Join(fsutils.MustGetThisDir(), "testdata", "setup.yaml")
+	clientManifest  = defaults.CurlPodManifest
+	backendManifest = defaults.NginxPodManifest
+
+	// backendNs is the namespace where we deploy the test manifests and **MUST** match nginxManifest.
+	backendNs = defaults.NginxPod.Namespace
+
 	gatewayManifest                         = filepath.Join(fsutils.MustGetThisDir(), "testdata", "gateway.yaml")
 	httpRouteManifest                       = filepath.Join(fsutils.MustGetThisDir(), "testdata", "httproute.yaml")
 	allFieldsManifest                       = filepath.Join(fsutils.MustGetThisDir(), "testdata", "listener-policy-all-fields.yaml")
@@ -31,49 +37,41 @@ var (
 	// When we apply the setup file, we expect resources to be created with this metadata
 	proxyObjectMeta = metav1.ObjectMeta{
 		Name:      "gw",
-		Namespace: "default",
+		Namespace: backendNs,
 	}
 	proxyService    = &corev1.Service{ObjectMeta: proxyObjectMeta}
 	proxyDeployment = &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "gw",
-			Namespace: "default",
+			Namespace: backendNs,
 		},
 	}
-	nginxPod = &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "nginx",
-			Namespace: "default",
-		},
-	}
-	exampleSvc = &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "example-svc",
-			Namespace: "default",
-		},
-	}
-	echoService = &corev1.Service{
+	clientPod  = defaults.CurlPod
+	backendPod = defaults.NginxPod
+	backendSvc = defaults.NginxSvc
+
+	echoSvc = &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "raw-header-echo",
-			Namespace: "default",
+			Namespace: backendNs,
 		},
 	}
 	echoDeployment = &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "raw-header-echo",
-			Namespace: "default",
+			Namespace: backendNs,
 		},
 	}
 	requestIdEchoService = &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "request-id-echo",
-			Namespace: "default",
+			Namespace: backendNs,
 		},
 	}
 	requestIdEchoDeployment = &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "request-id-echo",
-			Namespace: "default",
+			Namespace: backendNs,
 		},
 	}
 )

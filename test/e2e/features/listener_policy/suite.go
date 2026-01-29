@@ -21,7 +21,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
-	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 	"github.com/kgateway-dev/kgateway/v2/test/helpers"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
@@ -49,13 +49,22 @@ func NewTestingSuite(
 }
 
 func (s *testingSuite) SetupSuite() {
-	// Check that the common setup manifest is applied
-	err := s.testInstallation.Actions.Kubectl().ApplyFile(s.ctx, setupManifest)
-	s.NoError(err, "can apply "+setupManifest)
-	s.testInstallation.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, exampleSvc, nginxPod)
-	// Check that test app is running
-	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, nginxPod.ObjectMeta.GetNamespace(), metav1.ListOptions{
-		LabelSelector: testdefaults.WellKnownAppLabel + "=nginx",
+	// Check that the client manifest is applied
+	err := s.testInstallation.Actions.Kubectl().ApplyFile(s.ctx, clientManifest)
+	s.NoError(err, "can apply "+clientManifest)
+	s.testInstallation.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, clientPod)
+	// Check that the client pod is running
+	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, clientPod.ObjectMeta.GetNamespace(), metav1.ListOptions{
+		LabelSelector: defaults.WellKnownAppLabel + "=curl",
+	})
+
+	// Check that the backend manifest is applied
+	err = s.testInstallation.Actions.Kubectl().ApplyFile(s.ctx, backendManifest)
+	s.NoError(err, "can apply "+backendManifest)
+	s.testInstallation.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, backendSvc, backendPod)
+	// Check that the backend pod is running
+	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, backendPod.ObjectMeta.GetNamespace(), metav1.ListOptions{
+		LabelSelector: defaults.WellKnownAppLabel + "=nginx",
 	})
 
 	// include gateway manifests for tests, so we recreate it for each test run
@@ -79,8 +88,10 @@ func (s *testingSuite) TearDownSuite() {
 		return
 	}
 	// Check that the common setup manifest is deleted
-	err := s.testInstallation.Actions.Kubectl().DeleteFileSafe(s.ctx, setupManifest)
-	s.NoError(err, "can delete "+setupManifest)
+	err := s.testInstallation.Actions.Kubectl().DeleteFileSafe(s.ctx, backendManifest)
+	s.NoError(err, "can delete "+backendManifest)
+	err = s.testInstallation.Actions.Kubectl().DeleteFileSafe(s.ctx, clientManifest)
+	s.NoError(err, "can delete "+clientManifest)
 }
 
 func (s *testingSuite) BeforeTest(suiteName, testName string) {
@@ -98,7 +109,7 @@ func (s *testingSuite) BeforeTest(suiteName, testName string) {
 	// so let's assert the proxy svc and pod is ready before moving on
 	s.testInstallation.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, proxyService, proxyDeployment)
 	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, proxyDeployment.ObjectMeta.GetNamespace(), metav1.ListOptions{
-		LabelSelector: testdefaults.WellKnownAppLabel + "=gw",
+		LabelSelector: defaults.WellKnownAppLabel + "=gw",
 	})
 }
 
@@ -120,7 +131,7 @@ func (s *testingSuite) TestHttpListenerPolicyAllFields() {
 	fmt.Println("TestHttpListenerPolicyAllFields")
 	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
 		s.ctx,
-		testdefaults.CurlPodExecOpt,
+		defaults.CurlPodExecOpt,
 		[]curl.Option{
 			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
 			curl.WithHostHeader("example.com"),
@@ -133,7 +144,7 @@ func (s *testingSuite) TestHttpListenerPolicyAllFields() {
 	// Check the health check path is working
 	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
 		s.ctx,
-		testdefaults.CurlPodExecOpt,
+		defaults.CurlPodExecOpt,
 		[]curl.Option{
 			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
 			curl.WithPath("/health_check"),
@@ -151,7 +162,7 @@ func (s *testingSuite) TestHttpListenerPolicyServerHeader() {
 	// instead of Envoy's default (envoy)
 	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
 		s.ctx,
-		testdefaults.CurlPodExecOpt,
+		defaults.CurlPodExecOpt,
 		[]curl.Option{
 			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
 			curl.WithHostHeader("example.com"),
@@ -169,13 +180,13 @@ func (s *testingSuite) TestPreserveHttp1HeaderCase() {
 	// The test verifies that the HTTP1 headers are preserved as expected in the request and response
 	// The HTTPListenerPolicy ensures that the header is preserved in the request,
 	// and the BackendConfigPolicy ensures that the header is preserved in the response.
-	s.testInstallation.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, echoService, echoDeployment)
+	s.testInstallation.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, echoSvc, echoDeployment)
 	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, echoDeployment.ObjectMeta.GetNamespace(), metav1.ListOptions{
 		LabelSelector: "app=raw-header-echo",
 	})
 	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
 		s.ctx,
-		testdefaults.CurlPodExecOpt,
+		defaults.CurlPodExecOpt,
 		[]curl.Option{
 			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
 			curl.WithHostHeader("example.com"),
@@ -195,7 +206,7 @@ func (s *testingSuite) TestAccessLogEmittedToStdout() {
 	// First: trigger a 404 that SHOULD be logged (filter is GE 400)
 	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
 		s.ctx,
-		testdefaults.CurlPodExecOpt,
+		defaults.CurlPodExecOpt,
 		[]curl.Option{
 			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
 			curl.WithHostHeader("not.example.com"), // not matched by HTTPRoute hostnames
@@ -207,7 +218,7 @@ func (s *testingSuite) TestAccessLogEmittedToStdout() {
 	// Fetch gateway pod logs and verify the 404 access log JSON fields are present
 	pods, err := s.testInstallation.Actions.Kubectl().GetPodsInNsWithLabel(
 		s.ctx, proxyDeployment.ObjectMeta.GetNamespace(),
-		testdefaults.WellKnownAppLabel+"="+proxyDeployment.ObjectMeta.GetName(),
+		defaults.WellKnownAppLabel+"="+proxyDeployment.ObjectMeta.GetName(),
 	)
 	s.Require().NoError(err)
 	s.Require().Len(pods, 1)
@@ -225,7 +236,7 @@ func (s *testingSuite) TestAccessLogEmittedToStdout() {
 	// Second: trigger a 200 that SHOULD NOT be logged due to filter GE 400
 	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
 		s.ctx,
-		testdefaults.CurlPodExecOpt,
+		defaults.CurlPodExecOpt,
 		[]curl.Option{
 			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
 			curl.WithHostHeader("example.com"),
@@ -249,7 +260,7 @@ func (s *testingSuite) TestHttpListenerPolicyClearStaleStatus() {
 	otherControllerName := "other-controller.example.com/controller"
 
 	// Add fake ancestor status from another controller
-	s.addAncestorStatus("http-listener-policy-server-header", "default", "other-gw", otherControllerName)
+	s.addAncestorStatus("http-listener-policy-server-header", backendNs, "other-gw", otherControllerName)
 
 	// Verify both kgateway and other controller statuses exist
 	s.assertAncestorStatuses("gw", map[string]bool{
@@ -313,7 +324,7 @@ func (s *testingSuite) assertAncestorStatuses(ancestorName string, expectedContr
 		policy := &kgateway.ListenerPolicy{}
 		err := s.testInstallation.ClusterContext.Client.Get(
 			s.ctx,
-			types.NamespacedName{Name: "http-listener-policy-server-header", Namespace: "default"},
+			types.NamespacedName{Name: "http-listener-policy-server-header", Namespace: backendNs},
 			policy,
 		)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -340,7 +351,7 @@ func (s *testingSuite) TestEarlyRequestHeaderModifier() {
 	// Route matches only when a specific header is present. The policy adds it early.
 	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
 		s.ctx,
-		testdefaults.CurlPodExecOpt,
+		defaults.CurlPodExecOpt,
 		[]curl.Option{
 			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
 			curl.WithHostHeader("example.com"),
@@ -358,7 +369,7 @@ func (s *testingSuite) TestProxyProtocol() {
 	// Attempt a normal HTTP request; expect curl to error (connection closed/empty reply).
 	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlError(
 		s.ctx,
-		testdefaults.CurlPodExecOpt,
+		defaults.CurlPodExecOpt,
 		[]curl.Option{
 			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
 			curl.WithHostHeader("example.com"),
@@ -370,7 +381,7 @@ func (s *testingSuite) TestProxyProtocol() {
 	// test with PROXY protocol header; expect 200 OK
 	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
 		s.ctx,
-		testdefaults.CurlPodExecOpt,
+		defaults.CurlPodExecOpt,
 		[]curl.Option{
 			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
 			curl.WithHostHeader("example.com"),
@@ -398,7 +409,7 @@ func (s *testingSuite) TestListenerPolicyRequestId() {
 	// that Envoy properly generates the x-request-id header
 	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
 		s.ctx,
-		testdefaults.CurlPodExecOpt,
+		defaults.CurlPodExecOpt,
 		[]curl.Option{
 			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
 			curl.WithHostHeader("example.com"),
@@ -428,7 +439,7 @@ func (s *testingSuite) TestHTTPListenerPolicyRequestId() {
 	// that Envoy properly generates the x-request-id header
 	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
 		s.ctx,
-		testdefaults.CurlPodExecOpt,
+		defaults.CurlPodExecOpt,
 		[]curl.Option{
 			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
 			curl.WithHostHeader("example.com"),

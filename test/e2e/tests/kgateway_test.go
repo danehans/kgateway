@@ -41,7 +41,7 @@ func TestKgateway(t *testing.T) {
 			os.Unsetenv(testutils.InstallNamespace)
 		}
 
-		testInstallation.UninstallKgateway(ctx, t)
+		//testInstallation.UninstallKgateway(ctx, t)
 	})
 
 	// Install kgateway
