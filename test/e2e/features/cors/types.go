@@ -11,8 +11,11 @@ import (
 
 var (
 	// manifests
-	simpleServiceManifest  = filepath.Join(fsutils.MustGetThisDir(), "testdata", "service.yaml")
-	httpRoutesManifest     = filepath.Join(fsutils.MustGetThisDir(), "testdata", "httproutes.yaml")
+	simpleServiceManifest = filepath.Join(fsutils.MustGetThisDir(), "testdata", "service.yaml")
+	httpRoutesManifest    = filepath.Join(fsutils.MustGetThisDir(), "testdata", "httproutes.yaml")
+	// This manifest is intentionally self-contained. The e2e harness applies
+	// manifest files concurrently, so splitting the CORS route and its sibling
+	// routes across multiple files makes the shared svc-route updates race.
 	corsHttpRoutesManifest = filepath.Join(fsutils.MustGetThisDir(), "testdata", "httproutes-cors.yaml")
 
 	// traffic policies with cors configuration
@@ -37,10 +40,10 @@ var (
 			Manifests: []string{httpRoutesManifest, gwCorsTrafficPolicyManifest, routeCorsTrafficPolicyManifest},
 		},
 		"TestHttpRouteCorsInRouteRules": {
-			Manifests: []string{httpRoutesManifest, corsHttpRoutesManifest},
+			Manifests: []string{corsHttpRoutesManifest},
 		},
 		"TestHttpRouteAndTrafficPolicyCors": {
-			Manifests:       []string{httpRoutesManifest, corsHttpRoutesManifest, gwCorsTrafficPolicyManifest},
+			Manifests:       []string{corsHttpRoutesManifest, gwCorsTrafficPolicyManifest},
 			MinGwApiVersion: base.GwApiRequireCorsFilters,
 		},
 	}
